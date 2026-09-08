@@ -12,13 +12,17 @@
 // companion `smoke-auth.test.ts` exists; Vitest auto-discovers `scripts/**/
 // *.test.ts` and would run it without a live server. The script IS the test.
 //
-// COOKIE PREFIX: hardcodes `app-csrf=` per the default `COOKIE_PREFIX=app`
-// env var. Forks that override `COOKIE_PREFIX` must update the regex in
-// csrfFromCookies().
+// COOKIE PREFIX: read from the COOKIE_PREFIX env var (default `app`), so a
+// fork that renames its cookies needs no edit here.
+
+import { pathToFileURL } from 'node:url';
 
 import { PrismaClient } from '@prisma/client';
 
-const BASE_URL = process.env.SMOKE_BASE_URL ?? 'http://localhost:3000';
+// `??` alone is not enough: .env.example ships `SMOKE_BASE_URL=""`, and an
+// empty string is not nullish — it would produce a blank base URL.
+const RAW_BASE_URL = process.env.SMOKE_BASE_URL?.trim();
+const BASE_URL = RAW_BASE_URL ? RAW_BASE_URL : 'http://localhost:3000';
 const TEST_EMAIL = `smoke-${Date.now()}@example.test`;
 const TEST_PASSWORD = 'SmokeTestPwd123!';
 
@@ -49,10 +53,12 @@ async function assertStatus(label: string, res: Response, expected: number): Pro
   return body;
 }
 
-// NOTE: forks overriding COOKIE_PREFIX must update this regex.
+const COOKIE_PREFIX = process.env.COOKIE_PREFIX ?? 'app';
+
 function csrfFromCookies(setCookieHeaders: string[]): string | null {
+  const re = new RegExp(`(?:^|;\\s*)${COOKIE_PREFIX}-csrf=([^;]+)`);
   for (const c of setCookieHeaders) {
-    const m = c.match(/(?:^|;\s*)app-csrf=([^;]+)/);
+    const m = c.match(re);
     if (m) return decodeURIComponent(m[1] ?? '');
   }
   return null;
@@ -150,7 +156,10 @@ export async function main(): Promise<number> {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Windows-safe entrypoint check: `file://${process.argv[1]}` never matches on
+// Win32 (backslashes + drive letter vs. the percent-encoded file:/// URL), so
+// the script silently no-opped and exited 0 — a false PASS.
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   main()
     .then((code) => process.exit(code))
     .catch((err) => {
