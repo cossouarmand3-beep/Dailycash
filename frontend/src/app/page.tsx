@@ -1,193 +1,282 @@
-// Default welcome page for the izi kit starter.
+// Daily Cash — landing page.
 //
-// Replace this file with your real homepage as soon as you're oriented.
-// This file exists so a fresh fork shows something useful at `/` instead of a
-// blank page — it's a server component that reads env at request time and
-// shows which optional providers are configured.
+// Faithful implementation of the Claude Design canvas `Daily Cash Landing.dc.html`.
+// The canvas' inline styles are mapped onto the design tokens declared in
+// globals.css; the `<sc-for>` loops became the plain arrays below, which is
+// what the canvas' DCLogic `renderVals()` provided.
 //
-// Design-swappable: uses minimal Tailwind utilities; rip the JSX out and write
-// your own homepage. The starter ships no UI components by design.
+// Server component: nothing here is interactive, so no 'use client'.
+
+import Link from 'next/link';
 
 export const runtime = 'nodejs';
 
-function ConfigRow({ label, ok, hint }: { label: string; ok: boolean; hint: string }) {
+const FEATURES = [
+  {
+    num: '01',
+    title: 'Chaque paiement, en dix secondes',
+    body: 'Le montant, le client, le moyen de paiement. Le total du mois, de la semaine et du jour se recalculent immédiatement.',
+  },
+  {
+    num: '02',
+    title: "Qui vous doit encore de l'argent",
+    body: 'Les factures ouvertes restent visibles avec leur retard, et un message de relance prêt à envoyer par WhatsApp ou SMS.',
+  },
+  {
+    num: '03',
+    title: 'Votre objectif du mois',
+    body: "Un chiffre à atteindre, et la distance qui reste. Les prospects avancent d'un statut à l'autre jusqu'au devis signé.",
+  },
+] as const;
+
+const FREE_ITEMS = [
+  'Revenus enregistrés sans limite',
+  'Total du jour, de la semaine et du mois',
+  'Tâches quotidiennes',
+] as const;
+
+const PREMIUM_ITEMS = [
+  'Fiches clients et factures ouvertes',
+  'Relances prêtes à envoyer',
+  'Objectif mensuel et suivi des prospects',
+] as const;
+
+/** Small uppercase mono label used above every section. */
+function Eyebrow({ children, className = '' }: { children: React.ReactNode; className?: string }) {
   return (
-    <li className="flex flex-wrap items-center gap-2 py-1.5">
-      <span aria-hidden className={ok ? 'text-emerald-600' : 'text-amber-500'}>
-        {ok ? '✅' : '⚠️ '}
-      </span>
-      <span className="font-mono text-sm">{label}</span>
-      <span className="text-xs text-gray-500">— {hint}</span>
-    </li>
+    <div className={`font-mono text-[11px] uppercase tracking-[0.16em] ${className}`}>
+      {children}
+    </div>
+  );
+}
+
+/** Filled action with the design's signature 3px solid drop. */
+function PrimaryLink({
+  href,
+  children,
+  className = '',
+}: {
+  href: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className={`flex items-center justify-center rounded-[4px] bg-brand px-6 font-extrabold text-[#fff7ec] shadow-[0_3px_0_var(--color-brand-deep)] transition-transform active:translate-y-[2px] active:shadow-[0_1px_0_var(--color-brand-deep)] ${className}`}
+    >
+      {children}
+    </Link>
+  );
+}
+
+/** Outlined action on dark surfaces. */
+function GhostLink({
+  href,
+  children,
+  className = '',
+}: {
+  href: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className={`flex items-center justify-center rounded-[4px] border border-edge-dark px-[22px] font-semibold text-sand transition-colors hover:border-tan ${className}`}
+    >
+      {children}
+    </Link>
   );
 }
 
 export default function Home() {
-  const env = process.env;
-
-  const required = [
-    { label: 'DATABASE_URL', ok: !!env.DATABASE_URL, hint: 'Postgres (required)' },
-    { label: 'JWT_SECRET', ok: !!env.JWT_SECRET, hint: 'Auth signing key (required)' },
-  ];
-
-  const recommended = [
-    { label: 'ENCRYPTION_KEY', ok: !!env.ENCRYPTION_KEY, hint: 'AES-256-GCM (recommended)' },
-    { label: 'CRON_SECRET', ok: !!env.CRON_SECRET, hint: 'Vercel Cron Bearer (recommended)' },
-    { label: 'DIRECT_URL', ok: !!env.DIRECT_URL, hint: 'For prisma migrate deploy' },
-  ];
-
-  const optional = [
-    {
-      label: 'UPSTASH_REDIS_REST_URL',
-      ok: !!env.UPSTASH_REDIS_REST_URL,
-      hint: 'Redis (rate limit, queue, lockout)',
-    },
-    {
-      label: 'GOOGLE_CLIENT_ID',
-      ok: !!env.GOOGLE_CLIENT_ID,
-      hint: 'Sign in with Google (OAuth)',
-    },
-    { label: 'RESEND_API_KEY', ok: !!env.RESEND_API_KEY, hint: 'Email sender' },
-    { label: 'EMAIL_FROM', ok: !!env.EMAIL_FROM, hint: 'Verified sender address' },
-    {
-      label: 'CLOUDINARY_CLOUD_NAME',
-      ok: !!env.CLOUDINARY_CLOUD_NAME,
-      hint: 'Cloudinary file / media storage',
-    },
-    { label: 'BICTORYS_API_KEY', ok: !!env.BICTORYS_API_KEY, hint: 'Mobile money payments' },
-    { label: 'SENTRY_DSN', ok: !!env.SENTRY_DSN, hint: 'Error reporting + traces' },
-  ];
-
   return (
-    <main className="mx-auto max-w-3xl px-6 py-12 font-sans text-gray-900">
-      <header>
-        <h1 className="text-3xl font-bold tracking-tight">izi kit</h1>
-        <p className="mt-2 text-gray-600">
-          Headless Next.js 16 starter — auth, payments, admin, webhooks, cron.
-          <br />
-          You&rsquo;re seeing this default page because{' '}
-          <code className="rounded bg-gray-100 px-1.5 py-0.5 text-sm">
-            frontend/src/app/page.tsx
-          </code>{' '}
-          hasn&rsquo;t been replaced yet.
-        </p>
+    <div className="bg-cream text-ink">
+      {/* ─── Dark block: nav + hero ─────────────────────────────────── */}
+      <header className="bg-ink text-cream">
+        <nav className="mx-auto flex max-w-[1160px] flex-wrap items-center justify-between gap-5 px-6 py-[18px]">
+          <div>
+            <div className="text-xl font-black tracking-[-0.02em]">Daily Cash</div>
+            <Eyebrow className="mt-0.5 text-[10px] tracking-[0.18em] text-tan">
+              Pilotage freelance · FCFA
+            </Eyebrow>
+          </div>
+          <div className="flex items-center gap-2.5">
+            <GhostLink href="/login" className="min-h-[44px] px-4 text-sm">
+              Se connecter
+            </GhostLink>
+            <PrimaryLink href="/signup" className="min-h-[44px] px-[18px] text-sm">
+              Créer un compte
+            </PrimaryLink>
+          </div>
+        </nav>
+
+        <div className="mx-auto grid max-w-[1160px] grid-cols-[repeat(auto-fit,minmax(300px,1fr))] items-center gap-11 px-6 pt-[42px] pb-14">
+          <div>
+            <Eyebrow className="text-amber">Pour les indépendants au Sénégal</Eyebrow>
+            <h1 className="mt-3.5 text-[34px] leading-[1.08] font-black tracking-[-0.035em] text-pretty sm:text-[46px]">
+              Combien vous avez gagné ce mois-ci, et qui vous doit encore de l&rsquo;argent.
+            </h1>
+            <p className="mt-4 max-w-[46ch] text-lg leading-relaxed text-sand text-pretty">
+              Un paiement s&rsquo;enregistre en dix secondes, par Wave, Orange Money ou en espèces.
+              Le total du mois se met à jour tout seul — plus de cahier, plus de calcul de tête.
+            </p>
+            <div className="mt-[26px] flex flex-wrap gap-3">
+              <PrimaryLink href="/signup" className="min-h-[52px] text-base">
+                Commencer gratuitement
+              </PrimaryLink>
+              <GhostLink href="/app" className="min-h-[52px] text-base">
+                Voir l&rsquo;application
+              </GhostLink>
+            </div>
+            <p className="mt-[18px] font-mono text-xs leading-relaxed text-tan">
+              Sans carte bancaire. Gratuit pour les revenus et les tâches.
+            </p>
+          </div>
+
+          {/* Revenue card — the product's core promise, shown rather than told. */}
+          <div className="rounded-md border border-edge-dark bg-ink-card p-6">
+            <Eyebrow className="tracking-[0.14em] text-tan">Encaissé en septembre</Eyebrow>
+            <div className="mt-2 flex items-baseline gap-[9px]">
+              <span className="text-[52px] leading-none font-black tracking-[-0.035em] tabular-nums">
+                487 500
+              </span>
+              <span className="text-base font-bold text-tan">FCFA</span>
+            </div>
+
+            <div
+              className="mt-[18px] h-2.5 overflow-hidden rounded-[2px] bg-edge-dark"
+              role="img"
+              aria-label="65 % de l'objectif mensuel de 750 000 FCFA atteint"
+            >
+              <div className="h-full w-[65%] bg-amber" />
+            </div>
+            <div className="mt-2 flex justify-between font-mono text-[11px] text-tan">
+              <span>Objectif 750 000</span>
+              <span>65%</span>
+            </div>
+
+            <div className="mt-[22px] grid grid-cols-2 gap-2.5">
+              <div className="rounded-[4px] border border-edge-dark bg-ink-deep p-3.5">
+                <Eyebrow className="text-[10px] tracking-[0.12em] text-tan">Cette semaine</Eyebrow>
+                <div className="mt-[5px] text-[22px] font-extrabold tabular-nums">112 500</div>
+              </div>
+              <div className="rounded-[4px] border border-edge-amber border-l-4 border-l-amber bg-ink-deep p-3.5">
+                <Eyebrow className="text-[10px] tracking-[0.12em] text-amber-light">
+                  À recevoir
+                </Eyebrow>
+                <div className="mt-[5px] text-[22px] font-extrabold tabular-nums">185 000</div>
+              </div>
+            </div>
+          </div>
+        </div>
       </header>
 
-      {/* ─── Beginner: what to type next ───────────────────────────────── */}
-      <section className="mt-10 rounded-lg border border-emerald-200 bg-emerald-50 p-5">
-        <h2 className="text-lg font-semibold text-emerald-900">
-          👋 New here? Open this project in Claude Code and type:
-        </h2>
-        <pre className="mt-3 overflow-x-auto rounded bg-white p-3 text-sm">/setup-kit</pre>
-        <p className="mt-3 text-sm text-emerald-900">
-          The <code>/setup-kit</code> skill audits your environment, installs what it can (pnpm via
-          Corepack, secrets), and walks you through plugging a <strong>Neon Postgres</strong>{' '}
-          connection string — the kit is tuned for Neon&rsquo;s serverless behavior (other Postgres
-          providers work but need user-side tuning). Then just{' '}
-          <strong>describe what you want to build to Claude</strong> (in French or English). The 40
-          routes (auth, payments, admin, webhooks, cron, uploads) are already wired — you only talk
-          about your product, not the plumbing. See <code>WORKFLOW.md</code> for the full
-          vibe-coding flow.
-        </p>
-      </section>
-
-      {/* ─── Live backend probes ──────────────────────────────────────── */}
-      <section className="mt-10">
-        <h2 className="text-xl font-semibold">Backend status</h2>
-        <p className="mt-1 text-sm text-gray-600">
-          Live JSON probes — open these in a new tab to confirm everything is up.
-        </p>
-        <ul className="mt-3 space-y-1">
-          <li>
-            <a
-              href="/api/health"
-              target="_blank"
-              rel="noreferrer"
-              className="text-blue-600 underline"
+      {/* ─── Features ───────────────────────────────────────────────── */}
+      <section className="mx-auto max-w-[1160px] px-6 pt-14">
+        <Eyebrow className="text-muted">Ce que vous faites avec</Eyebrow>
+        <div className="mt-[18px] grid grid-cols-[repeat(auto-fit,minmax(260px,1fr))] gap-4">
+          {FEATURES.map((f) => (
+            <div
+              key={f.num}
+              className="rounded-[5px] border border-edge-light bg-cream-card p-[22px]"
             >
-              /api/health
-            </a>{' '}
-            <span className="text-xs text-gray-500">— liveness (always responds)</span>
-          </li>
-          <li>
-            <a
-              href="/api/readyz"
-              target="_blank"
-              rel="noreferrer"
-              className="text-blue-600 underline"
-            >
-              /api/readyz
-            </a>{' '}
-            <span className="text-xs text-gray-500">
-              — readiness (DB + Redis probes, 503 if either is down)
-            </span>
-          </li>
-        </ul>
+              <div className="font-mono text-[11px] text-brand">{f.num}</div>
+              <h2 className="mt-2.5 text-[19px] leading-tight font-extrabold tracking-[-0.02em]">
+                {f.title}
+              </h2>
+              <p className="mt-2 text-[15px] leading-[1.55] text-body">{f.body}</p>
+            </div>
+          ))}
+        </div>
       </section>
 
-      {/* ─── Provider configuration ───────────────────────────────────── */}
-      <section className="mt-10">
-        <h2 className="text-xl font-semibold">Provider configuration</h2>
-        <p className="mt-1 text-sm text-gray-600">
-          Read at request time from <code>process.env</code>. Optional providers are inert when
-          absent — the corresponding routes 404 silently and the rest of the app keeps working.
-        </p>
+      {/* ─── Pricing ────────────────────────────────────────────────── */}
+      <section className="mx-auto max-w-[1160px] px-6 pt-14">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))] gap-4">
+          <div className="rounded-[5px] border border-edge-light bg-cream-card p-[26px]">
+            <Eyebrow className="tracking-[0.14em] text-muted">Formule gratuite</Eyebrow>
+            <div className="mt-2.5 flex items-baseline gap-2">
+              <span className="text-[34px] font-black tracking-[-0.03em]">0</span>
+              <span className="text-[15px] font-bold text-muted">FCFA</span>
+            </div>
+            <ul className="mt-[18px] flex flex-col gap-2.5">
+              {FREE_ITEMS.map((text) => (
+                <li
+                  key={text}
+                  className="flex items-start gap-2.5 text-[15px] leading-normal text-body"
+                >
+                  <span aria-hidden className="font-black text-check">
+                    ✓
+                  </span>
+                  <span>{text}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
 
-        <h3 className="mt-5 text-sm font-semibold uppercase tracking-wide text-gray-500">
-          Required (app refuses to boot without these)
-        </h3>
-        <ul>
-          {required.map((row) => (
-            <ConfigRow key={row.label} {...row} />
-          ))}
-        </ul>
-
-        <h3 className="mt-5 text-sm font-semibold uppercase tracking-wide text-gray-500">
-          Recommended (app boots, but breaks at first use)
-        </h3>
-        <ul>
-          {recommended.map((row) => (
-            <ConfigRow key={row.label} {...row} />
-          ))}
-        </ul>
-
-        <h3 className="mt-5 text-sm font-semibold uppercase tracking-wide text-gray-500">
-          Optional providers
-        </h3>
-        <ul>
-          {optional.map((row) => (
-            <ConfigRow key={row.label} {...row} />
-          ))}
-        </ul>
+          <div className="rounded-[5px] border border-edge-light border-t-4 border-t-brand bg-cream-card p-[26px]">
+            <Eyebrow className="tracking-[0.14em] text-brand">Premium</Eyebrow>
+            <div className="mt-2.5 flex items-baseline gap-2">
+              <span className="text-[34px] font-black tracking-[-0.03em]">2 000</span>
+              <span className="text-[15px] font-bold text-muted">FCFA / mois</span>
+            </div>
+            <ul className="mt-[18px] flex flex-col gap-2.5">
+              {PREMIUM_ITEMS.map((text) => (
+                <li
+                  key={text}
+                  className="flex items-start gap-2.5 text-[15px] leading-normal text-body"
+                >
+                  <span aria-hidden className="font-black text-brand">
+                    ✓
+                  </span>
+                  <span>{text}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-[18px] font-mono text-xs leading-relaxed text-muted">
+              Payable par Wave ou Orange Money. Sans engagement, annulable à tout moment.
+            </p>
+          </div>
+        </div>
       </section>
 
-      {/* ─── What's shipped ───────────────────────────────────────────── */}
-      <section className="mt-10">
-        <h2 className="text-xl font-semibold">What this starter ships</h2>
-        <ul className="mt-3 list-inside list-disc space-y-1 text-sm">
-          <li>
-            API routes under <code>/api/*</code> — auth, OAuth, admin, payments, uploads, webhooks,
-            5 cron handlers
-          </li>
-          <li>Prisma schema + versioned migrations (Postgres / Neon)</li>
-          <li>Vitest unit test suite covering the protected libs</li>
-          <li>CI pipeline: format / lint / typecheck / test / build / audit</li>
-          <li>
-            Cloud-only by design — bring your own Postgres (Neon free tier), no local containers
-          </li>
-        </ul>
-        <p className="mt-3 text-sm text-gray-600">
-          Full architecture overview in{' '}
-          <code className="rounded bg-gray-100 px-1.5 py-0.5">CLAUDE.md</code>; public surface in{' '}
-          <code className="rounded bg-gray-100 px-1.5 py-0.5">README.md</code>.
-        </p>
+      {/* ─── Closing CTA ────────────────────────────────────────────── */}
+      <section className="mx-auto mt-14 max-w-[1160px] px-6">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))] items-center gap-7 rounded-md bg-ink px-8 py-10 text-cream">
+          <div>
+            <h2 className="text-[26px] leading-tight font-extrabold tracking-[-0.03em] text-pretty sm:text-[30px]">
+              Votre mois commence par un chiffre. Enregistrez le premier maintenant.
+            </h2>
+            <p className="mt-3 text-base leading-[1.55] text-sand">
+              Créer un compte prend une adresse email et un code de confirmation. Rien
+              d&rsquo;autre.
+            </p>
+          </div>
+          <div className="flex flex-col gap-3">
+            <PrimaryLink href="/signup" className="min-h-[52px] text-base">
+              Créer mon compte
+            </PrimaryLink>
+            <GhostLink href="/login" className="min-h-[52px] text-base">
+              J&rsquo;ai déjà un compte
+            </GhostLink>
+          </div>
+        </div>
       </section>
 
-      <footer className="mt-12 border-t border-gray-200 pt-6 text-xs text-gray-500">
-        Replace this page in{' '}
-        <code className="rounded bg-gray-100 px-1.5 py-0.5">frontend/src/app/page.tsx</code> when
-        you&rsquo;re ready.
+      {/* ─── Footer ─────────────────────────────────────────────────── */}
+      <footer className="mx-auto flex max-w-[1160px] flex-wrap items-baseline justify-between gap-4 px-6 pt-8 pb-12">
+        <div className="font-mono text-[11px] text-muted">Daily Cash · Dakar · FCFA</div>
+        <div className="flex gap-[18px] text-sm">
+          <Link href="/app" className="text-link hover:text-link-hover">
+            Application mobile
+          </Link>
+          <Link href="/app/desktop" className="text-link hover:text-link-hover">
+            Version desktop
+          </Link>
+        </div>
       </footer>
-    </main>
+    </div>
   );
 }

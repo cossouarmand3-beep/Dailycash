@@ -1,1 +1,99 @@
 @import 'tailwindcss';
+
+/* Daily Cash design tokens — extracted from the Claude Design canvas
+   (`Daily Cash Landing.dc.html`). Colour names describe the ROLE, not the
+   hue, so a future palette change stays a one-line edit here. */
+@theme {
+  /* Surfaces */
+  --color-cream: #fbf6ec; /* page background */
+  --color-cream-card: #fffdf8; /* light card */
+  --color-ink: #2a1d12; /* dark sections */
+  --color-ink-card: #2f2115; /* card on dark */
+  --color-ink-deep: #332314; /* nested tile on dark */
+
+  /* Borders */
+  --color-edge-dark: #4a3524;
+  --color-edge-light: #e2d6c2;
+  --color-edge-amber: #6b4426;
+
+  /* Text */
+  --color-sand: #e4d6bf; /* body text on dark */
+  --color-tan: #c9a87c; /* labels on dark */
+  --color-body: #5f4e3a; /* body text on light */
+  --color-muted: #7a6549; /* labels on light */
+
+  /* Accents */
+  --color-brand: #c2551f; /* primary action */
+  --color-brand-deep: #8f3810; /* the 3px solid drop under buttons */
+  --color-amber: #e08a2e; /* progress fill, eyebrow on dark */
+  --color-amber-light: #e8a55e; /* "à recevoir" label */
+  --color-link: #b84a15;
+  --color-link-hover: #8f3810;
+  --color-check: #4f6b3a; /* free-plan checkmarks */
+
+  /* Type — wired to next/font in layout.tsx */
+  --font-display: var(--font-archivo), Helvetica, Arial, sans-serif;
+  --font-mono: var(--font-dm-mono), ui-monospace, monospace;
+}
+
+body {
+  background: var(--color-cream);
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Motion lifted verbatim from the canvas prototypes. Each is honoured only
+   when the visitor has not asked for reduced motion (see below). */
+@keyframes dcRise {
+  from {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes dcSheet {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes dcPop {
+  0% {
+    transform: scale(0.86);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.03);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes dcSweep {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

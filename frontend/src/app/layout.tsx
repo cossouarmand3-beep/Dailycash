@@ -1,19 +1,28 @@
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
+import { Archivo, DM_Mono } from 'next/font/google';
 import './globals.css';
 import { ToastProvider } from '@/contexts/ToastContext';
 import { AuthProvider } from '@/contexts/AuthContext';
 
-const inter = Inter({
+// Archivo is variable (400–900) — the design leans on 800/900 for headings.
+const archivo = Archivo({
   subsets: ['latin'],
-  variable: '--font-inter',
+  variable: '--font-archivo',
   display: 'swap',
 });
 
-// Replace these with your app name + description per fork.
+// DM Mono has no variable axis; the design only uses 400 and 500.
+const dmMono = DM_Mono({
+  subsets: ['latin'],
+  weight: ['400', '500'],
+  variable: '--font-dm-mono',
+  display: 'swap',
+});
+
 export const metadata: Metadata = {
-  title: 'izi kit',
-  description: 'Headless Next.js 16 starter — auth, payments, admin, webhooks, cron.',
+  title: 'Daily Cash — Pilotage freelance · FCFA',
+  description:
+    "Combien vous avez gagné ce mois-ci, et qui vous doit encore de l'argent. Suivi des revenus, des impayés et des objectifs pour les indépendants au Sénégal.",
 };
 
 export default function RootLayout({
@@ -22,8 +31,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={inter.variable}>
-      <body className={inter.className}>
+    <html lang="fr" className={`${archivo.variable} ${dmMono.variable}`}>
+      <body>
         <ToastProvider>
           <AuthProvider>{children}</AuthProvider>
         </ToastProvider>
