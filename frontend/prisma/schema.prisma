@@ -23,6 +23,10 @@ model User {
   name              String?
   // Optional avatar URL — populated from OAuth profile on first sign-in.
   avatarUrl         String?
+  // Daily Cash: the freelancer's trade, picked at signup ("Graphiste",
+  // "Community manager"…). Free text so a fork can extend the list without
+  // a migration.
+  trade             String?
   // App-wide role. USER is the default; ADMIN unlocks /admin back-office;
   // SUPERADMIN can promote/demote other admins. Bootstrap an initial
   // SUPERADMIN via `pnpm db:make-superadmin <email>` (see scripts).
@@ -43,10 +47,18 @@ model User {
   oauthAccounts     OAuthAccount[]
   adminActions      AdminAction[]
 
+  // Daily Cash domain — personal bookkeeping, cascades on account deletion.
+  clients   Client[]
+  invoices  Invoice[]
+  incomes   Income[]
+  tasks     Task[]
+  prospects Prospect[]
+  goals     MonthlyGoal[]
+
   // Multi-tenancy is opt-in per project: by default no resource is org-scoped.
   // Apps that need it (marketplace, B2B SaaS, classifieds) wire owner relations
   // on their domain models.
-  ownedOrganizations Organization[]      @relation("OrgOwner")
+  ownedOrganizations Organization[]       @relation("OrgOwner")
   memberships        OrganizationMember[] @relation("OrgMembership")
 
   @@index([email])
@@ -95,14 +107,14 @@ model AdminAction {
 // used as a stable URL segment.
 // ───────────────────────────────────────────────────────────────────────
 model Organization {
-  id        String   @id @default(cuid())
-  slug      String   @unique
+  id        String               @id @default(cuid())
+  slug      String               @unique
   name      String
   ownerId   String
-  owner     User     @relation("OrgOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  owner     User                 @relation("OrgOwner", fields: [ownerId], references: [id], onDelete: Restrict)
   members   OrganizationMember[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
 
   @@index([ownerId])
 }
@@ -273,21 +285,21 @@ model WebhookLog {
 // at the call site — the schema is currency-agnostic.
 // ───────────────────────────────────────────────────────────────────────
 model Order {
-  id              String    @id @default(cuid())
-  userId          String? // nullable — guest checkout supported
-  user            User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
-  amount          Int // gross amount, smallest unit
-  currency        String    @default("XOF") // ISO 4217
-  status          String    @default("PENDING") // PENDING | PAID | EXPIRED | FAILED | REFUNDED
-  customerEmail   String?
-  customerPhone   String?
-  customerName    String?
-  metadata        Json? // app-specific fields
+  id            String  @id @default(cuid())
+  userId        String? // nullable — guest checkout supported
+  user          User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  amount        Int // gross amount, smallest unit
+  currency      String  @default("XOF") // ISO 4217
+  status        String  @default("PENDING") // PENDING | PAID | EXPIRED | FAILED | REFUNDED
+  customerEmail String?
+  customerPhone String?
+  customerName  String?
+  metadata      Json? // app-specific fields
 
   // Stripe-grade idempotency. Required header on POST /api/orders; replay
   // with same value returns the original Order row instead of double-charging.
   // Nullable so existing rows pre-migration don't break the @unique constraint.
-  idempotencyKey  String?   @unique
+  idempotencyKey String? @unique
 
   // Provider reference
   provider         String // e.g. "bictorys"
@@ -311,12 +323,12 @@ model Order {
 }
 
 model Withdrawal {
-  id          String   @id @default(cuid())
+  id          String @id @default(cuid())
   userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  user        User   @relation(fields: [userId], references: [id], onDelete: Restrict)
   amount      Int // requested amount, smallest unit
-  currency    String   @default("XOF")
-  status      String   @default("PENDING") // PENDING | PROCESSING | COMPLETED | FAILED | CANCELLED
+  currency    String @default("XOF")
+  status      String @default("PENDING") // PENDING | PROCESSING | COMPLETED | FAILED | CANCELLED
   destination Json // { method: "WAVE" | "ORANGE_MONEY" | ..., phone: "+221...", accountName?: "..." }
 
   // Provider reference
@@ -331,4 +343,129 @@ model Withdrawal {
   @@index([userId, requestedAt])
   @@index([status, requestedAt])
   @@index([provider, providerPayoutId])
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Daily Cash — domain models.
+//
+// Everything here is owned by exactly one User (the freelancer) and cascades
+// on account deletion: this is personal bookkeeping, not shared ledger data.
+//
+// Amounts are integers in the smallest currency unit. FCFA (XOF) has no
+// subunit, so 60000 means 60 000 FCFA — never store decimals.
+// ═══════════════════════════════════════════════════════════════════════
+
+// A person or business the freelancer invoices.
+model Client {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  phone     String? // used to prefill the WhatsApp / SMS reminder
+  note      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  invoices Invoice[]
+  incomes  Income[]
+
+  // The app dedupes by name when adding a client, matching the prototype.
+  @@unique([userId, name])
+  @@index([userId, createdAt])
+}
+
+// Money a client owes. "Late" is derived from dueDate, never stored.
+model Invoice {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clientId   String?
+  client     Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  label      String? // e.g. "Facture juin"
+  amount     Int
+  currency   String    @default("XOF")
+  status     String    @default("OPEN") // OPEN | PAID | CANCELLED
+  dueDate    DateTime?
+  // Set when the freelancer sends the ready-made reminder. Nullable = never
+  // chased; the UI shows "Relancé aujourd'hui" by comparing to today.
+  relancedAt DateTime?
+  paidAt     DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  incomes Income[]
+
+  @@index([userId, status, dueDate])
+  @@index([clientId])
+}
+
+// A payment actually received. This table is the source of truth for the
+// day / week / month totals — they are SUMs over receivedAt, never counters.
+model Income {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clientId   String?
+  client     Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  // Set when this payment settles an invoice, so the invoice can show what
+  // cleared it. Nullable: most incomes are one-off, with no invoice behind.
+  invoiceId  String?
+  invoice    Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  amount     Int
+  currency   String   @default("XOF")
+  method     String   @default("WAVE") // WAVE | ORANGE_MONEY | CASH
+  // Separate from createdAt: a freelancer often records on Tuesday a payment
+  // received on Sunday, and the totals must follow the real date.
+  receivedAt DateTime @default(now())
+  note       String?
+  createdAt  DateTime @default(now())
+
+  @@index([userId, receivedAt])
+  @@index([clientId])
+}
+
+// A short daily to-do. Free plan feature.
+model Task {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label     String
+  tag       String    @default("Aujourd'hui") // free-form: Paiement | Livrable | 14h …
+  done      Boolean   @default(false)
+  doneAt    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([userId, done, createdAt])
+}
+
+// A lead, moving through the pipeline stages.
+model Prospect {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name            String
+  estimatedAmount Int?
+  currency        String   @default("XOF")
+  stage           String   @default("FIRST_CONTACT") // FIRST_CONTACT | TO_FOLLOW_UP | QUOTE_SENT | WON
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId, stage])
+}
+
+// The monthly revenue target. One row per user per month; `period` is
+// "YYYY-MM" so a month is addressable without date-range maths.
+model MonthlyGoal {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  period    String // "2026-09"
+  amount    Int
+  currency  String   @default("XOF")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, period])
+  @@index([userId])
 }

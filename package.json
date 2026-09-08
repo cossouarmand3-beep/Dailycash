@@ -24,7 +24,8 @@
     "db:make-superadmin": "pnpm --filter frontend run db:make-superadmin",
     "seed:dev": "pnpm --filter frontend run seed:dev",
     "smoke:auth": "pnpm --filter frontend run smoke:auth",
-    "prepare": "husky"
+    "prepare": "husky",
+    "smoke:dailycash": "pnpm --filter frontend run smoke:dailycash"
   },
   "lint-staged": {
     "*.{ts,tsx,js,mjs,cjs}": [
