@@ -1,0 +1,15 @@
+# The repo enforces LF everywhere (Prettier: "endOfLine": "lf").
+# Without this, a Windows clone with core.autocrlf=true checks files out as
+# CRLF, and the first `pnpm format` rewrites the whole tree as a phantom diff.
+* text=auto eol=lf
+
+# Binary assets: never touch the bytes.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.pdf binary
