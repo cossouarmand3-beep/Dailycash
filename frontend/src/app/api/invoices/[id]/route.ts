@@ -18,6 +18,7 @@ import { verifyCsrf } from '@/lib/server/auth';
 import { requireAuth } from '@/lib/server/middleware';
 import { prisma } from '@/lib/server/prisma';
 import { makeRequestContext, withRequestContext } from '@/lib/server/observability/request-context';
+import { requirePremium } from '@/lib/server/billing/entitlement';
 
 const Body = z.object({
   action: z.enum(['pay', 'relance']),
@@ -35,6 +36,10 @@ export async function PATCH(
 
     const auth = await requireAuth();
     if (auth instanceof NextResponse) return auth;
+
+    // Premium surface (voir la landing) — le refus vient du serveur, pas de l'UI.
+    const denied = await requirePremium(prisma, auth.user.sub, ctx.requestId);
+    if (denied) return denied;
     const userId = auth.user.sub;
 
     const { id } = await params;
@@ -118,6 +123,10 @@ export async function DELETE(
 
     const auth = await requireAuth();
     if (auth instanceof NextResponse) return auth;
+
+    // Premium surface (voir la landing) — le refus vient du serveur, pas de l'UI.
+    const denied = await requirePremium(prisma, auth.user.sub, ctx.requestId);
+    if (denied) return denied;
 
     const { id } = await params;
     // Any income already recorded against this invoice SURVIVES: the money

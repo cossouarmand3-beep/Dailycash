@@ -24,6 +24,7 @@ import {
   startOfNextWeek,
   startOfWeek,
 } from '@/lib/server/dailycash/period';
+import { isPremium } from '@/lib/server/billing/plan';
 
 // How many recent payments the "corriger une erreur" list shows. Small on
 // purpose: it exists to undo a slip made minutes ago, not to browse history.
@@ -55,6 +56,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       tasks,
       recentIncomes,
       prospects,
+      subscription,
     ] = await Promise.all([
       prisma.user.findUnique({
         where: { id: userId },
@@ -125,12 +127,36 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         select: { id: true, name: true, estimatedAmount: true, stage: true },
         orderBy: { createdAt: 'asc' },
       }),
+      prisma.subscription.findUnique({
+        where: { userId },
+        select: { status: true, currentPeriodEnd: true },
+      }),
     ]);
 
     const todayStart = startOfDay(now).getTime();
 
+    // The paywall is enforced HERE, not in the browser. Returning the premium
+    // collections and letting the UI hide them would leave every client name
+    // and every open invoice readable in the JSON — which is what the old
+    // client-side `premium` flag actually did.
+    const premium = isPremium(subscription, now);
+    const openInvoices = invoices.filter((inv) => inv.status === 'OPEN');
+    const locked = premium
+      ? null
+      : {
+          // Counts only, never content: enough to tell the freelancer what
+          // they are missing, not enough to be the feature.
+          clients: clients.length,
+          openInvoices: openInvoices.length,
+          openInvoicesAmount: openInvoices.reduce((sum, inv) => sum + inv.amount, 0),
+          prospects: prospects.length,
+          hasGoal: goal !== null,
+        };
+
     return NextResponse.json(
       {
+        premium,
+        locked,
         user: {
           name: user?.name ?? null,
           email: user?.email ?? null,
@@ -144,10 +170,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
           week: weekAgg._sum.amount ?? 0,
           day: dayAgg._sum.amount ?? 0,
         },
-        goal: goal ? goal.amount : null,
+        goal: premium && goal ? goal.amount : null,
         period: periodKey(now),
-        clients,
-        invoices: invoices.map((inv) => ({
+        clients: premium ? clients : [],
+        invoices: (premium ? invoices : []).map((inv) => ({
           id: inv.id,
           label: inv.label,
           amount: inv.amount,
@@ -164,8 +190,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
           // not chased at some point in the past.
           relancedToday: inv.relancedAt !== null && inv.relancedAt.getTime() >= todayStart,
         })),
+        // Tasks and income tracking are the free tier — never gated.
         tasks,
-        prospects,
+        prospects: premium ? prospects : [],
         // Newest first — the undo list for a payment just entered wrong.
         recentIncomes: recentIncomes.map((inc) => ({
           id: inc.id,

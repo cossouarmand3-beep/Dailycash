@@ -95,7 +95,10 @@ export type Sheet =
   | 'success'
   // Undo a payment entered wrong. Without it the ledger was append-only and
   // a slipped keypad stayed in the month total forever.
-  | 'corrections';
+  | 'corrections'
+  // The paywall. Opened by the plan row, and automatically whenever a gated
+  // route answers 402.
+  | 'premium';
 
 // ── Wire format ──────────────────────────────────────────────────────
 interface DashboardResponse {
@@ -126,6 +129,28 @@ interface DashboardResponse {
     receivedAt: string;
     clientName: string | null;
   }[];
+  /** Server truth. The screens never decide this for themselves. */
+  premium: boolean;
+  /** Counts of what a free account is missing; null when Premium is active. */
+  locked: {
+    clients: number;
+    openInvoices: number;
+    openInvoicesAmount: number;
+    prospects: number;
+    hasGoal: boolean;
+  } | null;
+}
+
+interface BillingResponse {
+  premium: boolean;
+  status: string | null;
+  currentPeriodEnd: string | null;
+  daysRemaining: number;
+  price: number;
+  currency: string;
+  features: readonly string[];
+  /** False when no payment provider is wired on this deployment. */
+  checkoutAvailable: boolean;
 }
 
 const shortDate = (iso: string) =>
@@ -159,9 +184,8 @@ interface UiState {
   /** Edited in the profile sheet; the number quoted in reminder messages. */
   phoneDraft: string;
   success: Income | null;
-  // Billing is not built yet, so the plan is a local toggle: it drives the
-  // paywall UI only, and grants nothing server-side.
-  premium: boolean;
+  /** True while the checkout redirect is being prepared. */
+  checkingOut: boolean;
 }
 
 const UI_SEED: UiState = {
@@ -175,12 +199,13 @@ const UI_SEED: UiState = {
   draft: '',
   phoneDraft: '',
   success: null,
-  premium: true,
+  checkingOut: false,
 };
 
 export function useDailyCash() {
   const [ui, setUi] = useState<UiState>(UI_SEED);
   const [data, setData] = useState<DashboardResponse | null>(null);
+  const [billing, setBilling] = useState<BillingResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [authRequired, setAuthRequired] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -191,8 +216,15 @@ export function useDailyCash() {
 
   const refresh = useCallback(async () => {
     try {
-      const res = await api<DashboardResponse>('/api/dashboard');
-      setData(res);
+      // Both in one round-trip pair: the dashboard already carries `premium`
+      // (so the screens never flicker), and /api/billing adds the price,
+      // renewal date and whether a payment can even be taken.
+      const [dash, bill] = await Promise.all([
+        api<DashboardResponse>('/api/dashboard'),
+        api<BillingResponse>('/api/billing').catch(() => null),
+      ]);
+      setData(dash);
+      setBilling(bill);
       setAuthRequired(false);
       setError(null);
     } catch (e) {
@@ -217,10 +249,17 @@ export function useDailyCash() {
         await fn();
         await refresh();
       } catch (e) {
+        // A gated route answered 402: show the offer, not a red banner. This
+        // is the only place the paywall can legitimately appear on its own —
+        // it means the SERVER refused, so it is never a guess.
+        if (e instanceof ApiError && e.code === 'PREMIUM_REQUIRED') {
+          patch({ sheet: 'premium' });
+          return;
+        }
         setError(e instanceof Error ? e.message : 'Action impossible');
       }
     },
-    [refresh],
+    [refresh, patch],
   );
 
   // ── View model ──────────────────────────────────────────────────────
@@ -250,6 +289,14 @@ export function useDailyCash() {
       value: p.estimatedAmount ? `Estimé ${fcfa(p.estimatedAmount)} FCFA` : 'Montant à définir',
       stage: STAGE_FROM_API[p.stage] ?? 'Premier contact',
     }));
+
+    // Entitlement is server truth. The screens read it; they never set it.
+    const premium = data?.premium ?? false;
+    const lockedInvoices = data?.locked?.openInvoices ?? 0;
+    const lockedOwed = data?.locked?.openInvoicesAmount ?? 0;
+    const price = billing?.price ?? 2000;
+    const cancelled = billing?.status === 'CANCELLED';
+    const renewalLabel = billing?.currentPeriodEnd ? shortDate(billing.currentPeriodEnd) : '—';
 
     const month = data?.totals.month ?? 0;
     const objective = data?.goal ?? DEFAULT_GOAL;
@@ -320,7 +367,7 @@ export function useDailyCash() {
       dueNote: lateInvoices[0]
         ? `${lateInvoices[0].name} est en retard.`
         : 'Aucun retard sur les factures ouvertes.',
-      goalNote: !ui.premium
+      goalNote: !premium
         ? 'Passez en Premium pour fixer un objectif mensuel et suivre la distance qui reste.'
         : month >= objective
           ? 'Objectif atteint. Le mois est gagné.'
@@ -331,18 +378,62 @@ export function useDailyCash() {
       )} prestations par mois au tarif moyen de 45 000 FCFA.`,
       taskCount: `${tasks.filter((t) => !t.done).length} restantes`,
       projectedMonth: `${fcfa(month + entry)} FCFA`,
-      upgradeTitle: `Vous avez ${fcfa(due)} FCFA à récupérer. Suivez-les jusqu'au bout.`,
-      planLabel: ui.premium ? 'Premium · 2 000 FCFA / mois' : 'Gratuite · activer Premium →',
-      planShort: ui.premium ? 'Premium' : 'Formule gratuite',
-      successNote: ui.premium
+      // For a free account the amount owed is not readable, so the pitch
+      // leans on the count the server DOES disclose.
+      upgradeTitle: premium
+        ? `Vous avez ${fcfa(due)} FCFA à récupérer. Suivez-les jusqu'au bout.`
+        : lockedOwed > 0
+          ? `Vous avez ${fcfa(lockedOwed)} FCFA à récupérer sur ${lockedInvoices} ${
+              lockedInvoices > 1 ? 'factures' : 'facture'
+            }. Suivez-les jusqu'au bout.`
+          : 'Suivez qui vous doit de l’argent, et relancez-les sans y penser.',
+      planLabel: premium
+        ? `Premium · ${fcfa(price)} FCFA / mois`
+        : `Gratuite · activer Premium (${fcfa(price)} FCFA / mois) →`,
+      planShort: premium ? 'Premium' : 'Formule gratuite',
+      // What the profile row shows under the plan name.
+      planDetail: premium
+        ? cancelled
+          ? `Annulé — accès jusqu'au ${renewalLabel}`
+          : `Renouvellement le ${renewalLabel}`
+        : 'Revenus et tâches inclus, pour toujours',
+      successNote: premium
         ? month >= objective
           ? 'Objectif du mois atteint. Bravo.'
           : `Il reste ${fcfa(Math.max(0, objective - month))} FCFA avant votre objectif du mois.`
         : 'Fixez un objectif mensuel pour voir la distance qui reste.',
       relanceInvoice: invoices.find((i) => i.id === ui.relanceId) ?? null,
       canAdd: ui.form.name.trim().length > 1,
+
+      // ── Billing ───────────────────────────────────────────────────────
+      premium,
+      cancelled,
+      price,
+      priceLabel: `${fcfa(price)} FCFA / mois`,
+      renewalLabel,
+      daysRemaining: billing?.daysRemaining ?? 0,
+      features: billing?.features ?? [],
+      /** False on a deployment with no payment credentials wired. */
+      checkoutAvailable: billing?.checkoutAvailable ?? false,
+      locked: data?.locked ?? null,
+      lockedInvoices,
+      lockedOwed,
+      lockedSummary: data?.locked
+        ? [
+            data.locked.clients > 0 &&
+              `${data.locked.clients} ${data.locked.clients > 1 ? 'clients' : 'client'}`,
+            data.locked.openInvoices > 0 &&
+              `${data.locked.openInvoices} ${
+                data.locked.openInvoices > 1 ? 'factures ouvertes' : 'facture ouverte'
+              }`,
+            data.locked.prospects > 0 &&
+              `${data.locked.prospects} ${data.locked.prospects > 1 ? 'prospects' : 'prospect'}`,
+          ]
+            .filter((x): x is string => typeof x === 'string')
+            .join(' · ')
+        : '',
     };
-  }, [data, ui, loading]);
+  }, [data, billing, ui, loading]);
 
   // ── Actions ─────────────────────────────────────────────────────────
   const actions = useMemo(
@@ -370,8 +461,60 @@ export function useDailyCash() {
         }),
       setDigits: (digits: string) => patch({ digits: digits.replace(/[^0-9]/g, '').slice(0, 9) }),
       setForm: (p: Partial<UiState['form']>) => patch((prev) => ({ form: { ...prev.form, ...p } })),
-      togglePremium: () => patch((prev) => ({ premium: !prev.premium, sheet: null })),
       dismissError: () => setError(null),
+
+      // ── Premium ───────────────────────────────────────────────────────
+      openPremium: () => patch({ sheet: 'premium' }),
+
+      /**
+       * Opens the hosted Wave / Orange Money checkout.
+       *
+       * Nothing is granted here — the browser cannot grant anything. Access
+       * appears only when the provider's webhook confirms the payment, which
+       * is why this just redirects and the dashboard is re-read on return.
+       */
+      startCheckout: async () => {
+        if (ui.checkingOut) return;
+        patch({ checkingOut: true });
+        try {
+          const res = await api<{ paymentUrl: string | null }>('/api/billing/checkout', {
+            method: 'POST',
+          });
+          if (res.paymentUrl) {
+            window.location.href = res.paymentUrl;
+            return; // leaving the page; keep the spinner until it unloads
+          }
+          setError("Le paiement n'a pas pu être ouvert. Réessayez.");
+        } catch (e) {
+          setError(
+            e instanceof ApiError && e.code === 'PAYMENT_PROVIDER_UNCONFIGURED'
+              ? 'Les paiements ne sont pas encore branchés sur ce déploiement.'
+              : e instanceof Error
+                ? e.message
+                : 'Paiement impossible',
+          );
+        } finally {
+          patch({ checkingOut: false });
+        }
+      },
+
+      /** Stops renewal; the days already paid for are kept. */
+      cancelPremium: () =>
+        void mutate(async () => {
+          await api('/api/billing/cancel', { method: 'POST' });
+          patch({ sheet: null });
+        }),
+
+      /**
+       * Development only, and only while no payment provider exists — the
+       * route 404s otherwise. Lets the Premium half of the app be exercised
+       * before a payment contract is signed.
+       */
+      devActivatePremium: () =>
+        void mutate(async () => {
+          await api('/api/billing/dev-activate', { method: 'POST' });
+          patch({ sheet: null });
+        }),
 
       /** Ends the session server-side, then hands back to the login screen. */
       signOut: async () => {

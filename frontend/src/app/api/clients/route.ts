@@ -12,6 +12,7 @@ import { verifyCsrf } from '@/lib/server/auth';
 import { requireAuth } from '@/lib/server/middleware';
 import { prisma } from '@/lib/server/prisma';
 import { makeRequestContext, withRequestContext } from '@/lib/server/observability/request-context';
+import { requirePremium } from '@/lib/server/billing/entitlement';
 
 const Body = z.object({
   name: z.string().trim().min(2).max(120),
@@ -29,6 +30,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     const auth = await requireAuth();
     if (auth instanceof NextResponse) return auth;
+
+    // Premium surface (voir la landing) — le refus vient du serveur, pas de l'UI.
+    const denied = await requirePremium(prisma, auth.user.sub, ctx.requestId);
+    if (denied) return denied;
     const userId = auth.user.sub;
 
     const parsed = Body.safeParse(await req.json().catch(() => null));

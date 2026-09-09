@@ -8,6 +8,7 @@
 
 import Link from 'next/link';
 import { Chip, Cta, Mono, fcfa } from '@/components/dc/primitives';
+import { PremiumPanel } from '@/components/dc/premium-panel';
 import {
   GOAL_OPTIONS,
   METHODS,
@@ -69,19 +70,6 @@ export default function DesktopAppPage() {
 
   return (
     <div className="flex min-h-dvh flex-col items-center gap-[18px] bg-[repeating-linear-gradient(135deg,#EDE4D4_0_14px,#E9DFCD_14px_28px)] px-6 pt-6 pb-12">
-      <div className="flex flex-wrap items-center justify-center gap-2.5 rounded-[4px] bg-ink px-3 py-2.5">
-        <Mono className="pr-1.5 text-[#c9b79a]">Formule</Mono>
-        <button
-          type="button"
-          onClick={() => a.togglePremium()}
-          className={`cursor-pointer rounded-[3px] border px-3 py-2 font-mono text-[11px] ${
-            s.premium ? 'border-amber bg-amber text-ink' : 'border-[#5a422c] text-[#c9b79a]'
-          }`}
-        >
-          Premium actif
-        </button>
-      </div>
-
       {error && (
         <button
           type="button"
@@ -141,7 +129,7 @@ export default function DesktopAppPage() {
             ))}
           </nav>
 
-          {s.premium && (
+          {d.premium && (
             <button
               type="button"
               onClick={() => a.openSheet('goal')}
@@ -167,7 +155,7 @@ export default function DesktopAppPage() {
             type="button"
             onClick={() => a.openSheet('profile')}
             className={`flex cursor-pointer items-center gap-[11px] border-t border-edge-dark px-0.5 pt-4 text-left ${
-              s.premium ? '' : 'mt-auto'
+              d.premium ? '' : 'mt-auto'
             }`}
           >
             <span
@@ -601,7 +589,7 @@ export default function DesktopAppPage() {
                   </div>
                 </section>
 
-                {!s.premium && (
+                {!d.premium && (
                   <div className="absolute inset-x-0 top-[320px] bottom-0 flex items-end justify-center bg-gradient-to-b from-transparent via-cream via-[30%] to-cream px-7 pb-8 lg:left-[236px]">
                     <div className="grid w-full max-w-[720px] grid-cols-1 items-center gap-6 rounded-[5px] border border-edge-light border-t-4 border-t-brand bg-cream-card p-6 shadow-[0_-10px_30px_rgba(42,29,18,0.1)] md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
                       <div>
@@ -616,7 +604,7 @@ export default function DesktopAppPage() {
                       </div>
                       <div>
                         <Cta
-                          onClick={() => a.togglePremium()}
+                          onClick={() => a.openPremium()}
                           className="min-h-0 p-[15px] text-[15px]"
                         >
                           Activer Premium
@@ -841,11 +829,18 @@ export default function DesktopAppPage() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => a.togglePremium()}
+                      onClick={() => a.openPremium()}
                       className="flex w-full cursor-pointer items-center justify-between gap-3 border-t border-[#ede2ce] p-3.5 text-left"
                     >
-                      <span className="text-sm font-bold">Formule</span>
-                      <span className="font-mono text-xs text-brand">{d.planLabel}</span>
+                      <span>
+                        <span className="block text-sm font-bold">{d.planShort}</span>
+                        <span className="mt-0.5 block font-mono text-[11px] text-muted">
+                          {d.planDetail}
+                        </span>
+                      </span>
+                      <span className="font-mono text-xs whitespace-nowrap text-brand">
+                        {d.premium ? 'Gérer →' : 'Activer →'}
+                      </span>
                     </button>
                   </div>
 
@@ -874,6 +869,30 @@ export default function DesktopAppPage() {
                   >
                     Se déconnecter
                   </button>
+                </>
+              )}
+
+              {s.sheet === 'premium' && (
+                <>
+                  <div className="flex items-center justify-between gap-3.5">
+                    <h2 className="text-[21px] font-extrabold tracking-[-0.02em]">Formule</h2>
+                    {closeBtn}
+                  </div>
+                  <PremiumPanel
+                    premium={d.premium}
+                    cancelled={d.cancelled}
+                    priceLabel={d.priceLabel}
+                    renewalLabel={d.renewalLabel}
+                    daysRemaining={d.daysRemaining}
+                    features={d.features}
+                    checkoutAvailable={d.checkoutAvailable}
+                    lockedSummary={d.lockedSummary}
+                    lockedOwed={d.lockedOwed}
+                    checkingOut={s.checkingOut}
+                    onCheckout={() => void a.startCheckout()}
+                    onCancel={() => a.cancelPremium()}
+                    onDevActivate={() => a.devActivatePremium()}
+                  />
                 </>
               )}
 

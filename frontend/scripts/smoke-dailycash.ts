@@ -66,6 +66,8 @@ interface Dashboard {
   tasks: { id: string; label: string; done: boolean }[];
   prospects: { id: string; name: string; stage: string }[];
   recentIncomes: { id: string; amount: number; clientName: string | null }[];
+  premium: boolean;
+  locked: { clients: number; openInvoices: number; openInvoicesAmount: number } | null;
 }
 
 async function call<T = unknown>(
@@ -142,6 +144,49 @@ export async function main(): Promise<number> {
     const empty = await call<Dashboard>('dashboard (vide)', '/api/dashboard');
     if (empty.totals.month !== 0 || empty.clients.length !== 0) {
       throw new StepError('dashboard.empty', 200, empty);
+    }
+    // ...and it must start on the FREE plan. The old build defaulted the
+    // browser to Premium, so this is the assertion that the paywall exists.
+    if (empty.premium !== false) throw new StepError('billing.defaultFree', 200, empty.premium);
+
+    // 2b. Every Premium surface must refuse a free account — from the server.
+    await call(
+      'paywall: clients refusé',
+      '/api/clients',
+      { method: 'POST', body: { name: 'Client Premium' } },
+      402,
+    );
+    await call(
+      'paywall: objectif refusé',
+      '/api/goal',
+      { method: 'PUT', body: { amount: 500000 } },
+      402,
+    );
+    await call(
+      'paywall: prospects refusé',
+      '/api/prospects',
+      { method: 'POST', body: { name: 'Lead Premium' } },
+      402,
+    );
+    // The free tier still works: recording income and ticking tasks are the
+    // promise on the landing page, and gating them would be a bait-and-switch.
+    const freeIncome = await call<{ income: { id: string } }>(
+      'gratuit: revenu accepté',
+      '/api/incomes',
+      { method: 'POST', body: { amount: 5000, method: 'CASH' } },
+      201,
+    );
+    await call('gratuit: revenu annulable', `/api/incomes/${freeIncome.income.id}`, {
+      method: 'DELETE',
+    });
+
+    // 2c. Activate Premium. In development with no payment provider wired,
+    //     /api/billing/dev-activate stands in for the webhook; it 404s as
+    //     soon as real credentials exist, and always in production.
+    await call('billing: activation (dev)', '/api/billing/dev-activate', { method: 'POST' });
+    const afterUpgrade = await call<Dashboard>('dashboard (premium)', '/api/dashboard');
+    if (afterUpgrade.premium !== true) {
+      throw new StepError('billing.activated', 200, afterUpgrade.premium);
     }
 
     // 3. One client, two open invoices. The OLD, SMALL one is created first
@@ -318,6 +363,26 @@ export async function main(): Promise<number> {
       throw new StepError('delete.cleanup', 200, {
         tasks: final.tasks,
         prospects: final.prospects,
+      });
+    }
+
+    // 12. Cancelling stops renewal WITHOUT taking back the month already
+    //     paid for — the landing page promises "sans engagement", and a
+    //     cancellation that revoked access on the spot would be a trap.
+    const billing = await call<{ premium: boolean; price: number; daysRemaining: number }>(
+      'billing (état)',
+      '/api/billing',
+    );
+    if (billing.price !== 2000) throw new StepError('billing.price', 200, billing.price);
+    if (!billing.premium || billing.daysRemaining < 29) {
+      throw new StepError('billing.period', 200, billing);
+    }
+
+    await call('billing (annuler)', '/api/billing/cancel', { method: 'POST' });
+    const afterCancel = await call<Dashboard>('dashboard (après annulation)', '/api/dashboard');
+    if (afterCancel.premium !== true) {
+      throw new StepError('billing.cancelKeepsAccess', 200, {
+        note: "l'annulation a révoqué un mois déjà payé",
       });
     }
 

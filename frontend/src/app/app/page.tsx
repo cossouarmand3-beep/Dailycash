@@ -6,11 +6,13 @@
 //
 // The prototype's phone bezel and fake status bar were canvas scaffolding and
 // are gone. So is its "premier lancement" toggle — the empty state now happens
-// on its own when an account has no data. The remaining plan toggle is a stub:
-// billing is not built, so it drives the paywall UI and nothing else.
+// on its own when an account has no data, and the plan toggle went with it:
+// Premium is a real subscription now, so `d.premium` is server truth and no
+// control on this page can change it.
 
 import Link from 'next/link';
 import { Chip, Cta, IconButton, Mono, fcfa } from '@/components/dc/primitives';
+import { PremiumPanel } from '@/components/dc/premium-panel';
 import {
   GOAL_OPTIONS,
   METHODS,
@@ -95,7 +97,7 @@ export default function AppPage() {
                     <span className="text-[15px] font-bold text-tan">FCFA</span>
                   </div>
 
-                  {s.premium ? (
+                  {d.premium ? (
                     <button
                       type="button"
                       onClick={() => a.openSheet('goal')}
@@ -410,14 +412,14 @@ export default function AppPage() {
                     Clients &amp; encaissements
                   </h1>
                   <div className="mt-[3px] font-mono text-[11px] text-muted">
-                    {s.premium
+                    {d.premium
                       ? d.isEmpty
                         ? '0 client · 0 prospect'
                         : `${d.clients.length} clients actifs · ${d.prospects.length} prospects`
                       : 'Aperçu — version gratuite'}
                   </div>
                 </div>
-                {s.premium && (
+                {d.premium && (
                   <button
                     type="button"
                     onClick={() => a.openSheet('add')}
@@ -615,7 +617,7 @@ export default function AppPage() {
                 )}
               </section>
 
-              {!s.premium && (
+              {!d.premium && (
                 <div className="absolute inset-x-0 top-[300px] bottom-[66px] flex items-end bg-gradient-to-b from-transparent via-cream via-[34%] to-cream px-5 pb-5">
                   <div className="w-full animate-[dcRise_0.4s_ease_both] rounded-[5px] border border-edge-light border-t-4 border-t-brand bg-cream-card p-[18px] shadow-[0_-8px_24px_rgba(42,29,18,0.08)]">
                     <Mono className="text-brand">Daily Cash Premium</Mono>
@@ -627,7 +629,7 @@ export default function AppPage() {
                       par mois, payable par Wave ou Orange Money.
                     </p>
                     <Cta
-                      onClick={() => a.togglePremium()}
+                      onClick={() => a.openPremium()}
                       className="mt-4 min-h-0 p-[15px] text-[15px]"
                     >
                       Activer Premium
@@ -732,13 +734,15 @@ export default function AppPage() {
                     ? (d.displayName ?? 'Mon profil')
                     : s.sheet === 'goal'
                       ? 'Objectif du mois'
-                      : s.sheet === 'corrections'
-                        ? 'Corriger un encaissement'
-                        : s.sheet === 'add'
-                          ? s.form.kind === 'prospect'
-                            ? 'Nouveau prospect'
-                            : 'Nouveau client'
-                          : `Relancer ${d.relanceInvoice?.name ?? ''}`}
+                      : s.sheet === 'premium'
+                        ? 'Formule'
+                        : s.sheet === 'corrections'
+                          ? 'Corriger un encaissement'
+                          : s.sheet === 'add'
+                            ? s.form.kind === 'prospect'
+                              ? 'Nouveau prospect'
+                              : 'Nouveau client'
+                            : `Relancer ${d.relanceInvoice?.name ?? ''}`}
                 </h2>
                 <IconButton onClick={() => a.closeSheet()} label="Fermer">
                   ✕
@@ -771,11 +775,18 @@ export default function AppPage() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => a.togglePremium()}
+                      onClick={() => a.openPremium()}
                       className="flex min-h-[56px] w-full cursor-pointer items-center justify-between gap-3 border-t border-[#ede2ce] p-3.5 text-left"
                     >
-                      <span className="text-sm font-bold">Formule</span>
-                      <span className="font-mono text-xs text-brand">{d.planLabel}</span>
+                      <span>
+                        <span className="block text-sm font-bold">{d.planShort}</span>
+                        <span className="mt-0.5 block font-mono text-[11px] text-muted">
+                          {d.planDetail}
+                        </span>
+                      </span>
+                      <span className="font-mono text-xs whitespace-nowrap text-brand">
+                        {d.premium ? 'Gérer →' : 'Activer →'}
+                      </span>
                     </button>
                   </div>
 
@@ -822,6 +833,24 @@ export default function AppPage() {
                     ))}
                   </div>
                 </>
+              )}
+
+              {s.sheet === 'premium' && (
+                <PremiumPanel
+                  premium={d.premium}
+                  cancelled={d.cancelled}
+                  priceLabel={d.priceLabel}
+                  renewalLabel={d.renewalLabel}
+                  daysRemaining={d.daysRemaining}
+                  features={d.features}
+                  checkoutAvailable={d.checkoutAvailable}
+                  lockedSummary={d.lockedSummary}
+                  lockedOwed={d.lockedOwed}
+                  checkingOut={s.checkingOut}
+                  onCheckout={() => void a.startCheckout()}
+                  onCancel={() => a.cancelPremium()}
+                  onDevActivate={() => a.devActivatePremium()}
+                />
               )}
 
               {s.sheet === 'corrections' && (
@@ -974,24 +1003,6 @@ export default function AppPage() {
             </div>
           </div>
         )}
-      </div>
-
-      {/* Plan toggle. The empty state is no longer a toggle — it happens on
-          its own when the account has no data. Billing is not built, so this
-          only drives the paywall UI. Remove before going live. */}
-      <div className="fixed bottom-3 left-1/2 z-50 flex -translate-x-1/2 gap-2 rounded-[4px] bg-ink px-3 py-2.5 shadow-lg">
-        <span className="pr-1.5 font-mono text-[11px] tracking-[0.14em] uppercase text-[#c9b79a]">
-          Formule
-        </span>
-        <button
-          type="button"
-          onClick={() => a.togglePremium()}
-          className={`min-h-[34px] cursor-pointer rounded-[3px] border px-3 py-2 font-mono text-[11px] ${
-            s.premium ? 'border-amber bg-amber text-ink' : 'border-[#5a422c] text-[#c9b79a]'
-          }`}
-        >
-          Premium
-        </button>
       </div>
     </div>
   );

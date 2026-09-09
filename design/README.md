@@ -60,6 +60,44 @@ comportement quand on modifie un écran.
 - Supprimer un client ou une facture ne détruit jamais l'argent déjà encaissé
   (`onDelete: SetNull` des deux côtés) — le revenu devient « Sans client ».
 
+## Premium — ce qui est gratuit, ce qui est payant
+
+La landing vend deux formules ; le serveur les applique.
+
+| Gratuit, pour toujours | Premium — 2 000 FCFA / mois |
+|---|---|
+| Enregistrer des revenus, les corriger | Fiches clients et factures ouvertes |
+| Totaux jour / semaine / mois | Relances prêtes à envoyer |
+| Tâches quotidiennes | Objectif mensuel et suivi des prospects |
+
+- **Le paywall est côté serveur.** `requirePremium` répond **402 `PREMIUM_REQUIRED`**
+  sur `/api/clients`, `/api/invoices/[id]`, `/api/goal` et `/api/prospects`, et
+  `/api/dashboard` ne renvoie tout simplement pas les collections Premium à un
+  compte gratuit — seulement des **compteurs** (« 3 clients, 2 factures
+  ouvertes »). Renvoyer les données en les masquant côté navigateur, c'était le
+  défaut de la version précédente : le nom de chaque client restait lisible dans
+  le JSON.
+- **L'accès est une comparaison de dates**, jamais un booléen stocké :
+  `currentPeriodEnd > maintenant`. Un booléen dérive dès qu'une période expire
+  sans cron pour le remettre à jour.
+- **Annuler ne reprend rien.** Le statut passe à `CANCELLED`, la date de fin
+  reste : on garde l'accès jusqu'au bout du mois déjà payé.
+- **Payer tôt cumule** au lieu de repartir de zéro (`extendPeriod`), et la même
+  commande ne peut pas créditer deux fois (`lastOrderId`) — un webhook rejoué
+  n'offre pas 60 jours.
+- **Rien n'est accordé par le navigateur.** Le checkout redirige vers Wave /
+  Orange Money ; l'accès n'apparaît que quand le webhook Bictorys confirme le
+  paiement, dans la transaction `Serializable` du kit.
+
+### Tester Premium sans compte Bictorys
+
+`POST /api/billing/dev-activate` accorde un mois sans paiement. Elle est
+**doublement fermée** (`lib/server/billing/provider-status.ts`, testé) :
+hors production **et** tant qu'aucun fournisseur de paiement n'est configuré.
+Dès que `BICTORYS_API_URL` / `BICTORYS_API_KEY` / `BICTORYS_WEBHOOK_SECRET`
+existent, la route répond 404 — y compris en local. Elle se retire toute
+seule, personne n'a à penser à la supprimer.
+
 ## Envoi des emails
 
 Sans `RESEND_API_KEY` / `EMAIL_FROM` (et les clés Upstash), aucun email ne part.

@@ -52,6 +52,7 @@ model User {
   adminActions      AdminAction[]
 
   // Daily Cash domain — personal bookkeeping, cascades on account deletion.
+  subscription Subscription?
   clients   Client[]
   invoices  Invoice[]
   incomes   Income[]
@@ -460,6 +461,42 @@ model Prospect {
 
 // The monthly revenue target. One row per user per month; `period` is
 // "YYYY-MM" so a month is addressable without date-range maths.
+// Daily Cash Premium — 2 000 FCFA / month, paid by Wave or Orange Money.
+//
+// One row per user, extended on each payment rather than one row per period:
+// the product has a single plan, and "when does access end" is the only
+// question the app ever asks.
+//
+// Entitlement is a DATE comparison (`currentPeriodEnd > now`), never a stored
+// boolean. A boolean drifts the moment a period lapses with no cron to flip
+// it, and it would hand access to anyone who could set the flag. It also
+// gives cancellation the right semantics for free: a cancelled subscription
+// keeps working until the period the user already paid for runs out.
+model Subscription {
+  id     String @id @default(cuid())
+  // One subscription per account — the unique constraint is what makes the
+  // webhook's upsert safe under concurrent delivery.
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  plan   String @default("PREMIUM")
+  status String @default("PENDING") // PENDING | ACTIVE | EXPIRED | CANCELLED
+
+  /// Null until the first payment lands. Access is granted while this is in
+  /// the future, whatever `status` says.
+  currentPeriodEnd DateTime?
+
+  /// The Order whose payment last extended the period — audit trail for
+  /// "why does this user have access until that date".
+  lastOrderId String?
+
+  cancelledAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status, currentPeriodEnd])
+}
+
 model MonthlyGoal {
   id        String   @id @default(cuid())
   userId    String

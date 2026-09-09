@@ -30,6 +30,8 @@ import { createWebhookHandler } from '@/lib/server/webhook/handler';
 import { bictorysWebhookProvider } from '@/lib/server/webhook/bictorys';
 import { enqueueOutbox } from '@/lib/server/outbox';
 import { prisma } from '@/lib/server/prisma';
+import { activateSubscription } from '@/lib/server/billing/activate';
+import { log } from '@/lib/server/observability/log';
 
 export const POST = createWebhookHandler({
   prisma,
@@ -54,6 +56,25 @@ export const POST = createWebhookHandler({
         ...(paymentMethod !== null ? { paymentMethod } : {}),
       },
     });
+
+    // Daily Cash Premium: an order tagged `kind: "subscription"` buys a month
+    // of access. Granting it here — inside the factory's Serializable tx —
+    // is what makes "paid" and "entitled" a single atomic fact. Doing it
+    // after commit would leave a window where the user has been charged and
+    // still sees the paywall.
+    const meta = (order.metadata ?? null) as { kind?: unknown } | null;
+    if (order.userId && meta?.kind === 'subscription') {
+      const activation = await activateSubscription(tx, {
+        userId: order.userId,
+        orderId: order.id,
+      });
+      log.info('subscription activated by webhook', {
+        orderId: order.id,
+        userId: order.userId,
+        currentPeriodEnd: activation.currentPeriodEnd?.toISOString() ?? null,
+        alreadyApplied: activation.alreadyApplied,
+      });
+    }
 
     // Outbox emits stay inside the factory's Serializable tx so the rows
     // commit atomically with the status change. The drain cron picks them up
