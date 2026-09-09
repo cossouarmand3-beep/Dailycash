@@ -1,4 +1,5 @@
-// PATCH /api/prospects/[id] — move a lead along the pipeline.
+// PATCH  /api/prospects/[id] — move a lead along the pipeline.
+// DELETE /api/prospects/[id] — remove it entirely.
 export const runtime = 'nodejs';
 
 import 'server-only';
@@ -38,6 +39,36 @@ export async function PATCH(
       where: { id, userId: auth.user.sub },
       data: { stage: parsed.data.stage },
     });
+
+    if (res.count === 0) {
+      return NextResponse.json(
+        { error: 'PROSPECT_NOT_FOUND', message: 'Prospect introuvable' },
+        { status: 404, headers: { 'x-request-id': ctx.requestId } },
+      );
+    }
+
+    return NextResponse.json(
+      { ok: true },
+      { status: 200, headers: { 'x-request-id': ctx.requestId } },
+    );
+  });
+}
+
+// DELETE /api/prospects/[id] — drop a lead that went nowhere, or was mistyped.
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+): Promise<NextResponse> {
+  const ctx = makeRequestContext(req.headers);
+  return withRequestContext(ctx, async () => {
+    const csrfFail = verifyCsrf(req);
+    if (csrfFail) return csrfFail;
+
+    const auth = await requireAuth();
+    if (auth instanceof NextResponse) return auth;
+
+    const { id } = await params;
+    const res = await prisma.prospect.deleteMany({ where: { id, userId: auth.user.sub } });
 
     if (res.count === 0) {
       return NextResponse.json(

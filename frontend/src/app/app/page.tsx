@@ -223,13 +223,16 @@ export default function AppPage() {
                 {d.tasks.length > 0 ? (
                   <ul className="mt-2.5 overflow-hidden rounded-[4px] border border-edge-light bg-cream-card">
                     {d.tasks.map((t, i) => (
-                      <li key={t.label}>
+                      // Keyed by id: two tasks can legitimately share a label,
+                      // and a label key made React reuse the wrong row.
+                      <li
+                        key={t.id}
+                        className={`flex items-center ${i ? 'border-t border-[#ede2ce]' : ''}`}
+                      >
                         <button
                           type="button"
                           onClick={() => a.toggleTask(t.id, !t.done)}
-                          className={`flex min-h-[56px] w-full cursor-pointer items-center gap-[11px] p-3.5 text-left ${
-                            i ? 'border-t border-[#ede2ce]' : ''
-                          }`}
+                          className="flex min-h-[56px] flex-1 cursor-pointer items-center gap-[11px] p-3.5 text-left"
                         >
                           <span
                             aria-hidden
@@ -249,6 +252,14 @@ export default function AppPage() {
                           <span className="shrink-0 rounded-[3px] bg-[#f3ecde] px-[7px] py-1 font-mono text-[10px] tracking-[0.06em] uppercase text-muted">
                             {t.tag}
                           </span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => a.deleteTask(t.id)}
+                          aria-label={`Supprimer la tâche ${t.label}`}
+                          className="min-h-[56px] shrink-0 cursor-pointer px-3.5 text-[15px] text-muted hover:text-brand-deep"
+                        >
+                          ✕
                         </button>
                       </li>
                     ))}
@@ -435,9 +446,9 @@ export default function AppPage() {
                 <Mono className="text-muted">Factures ouvertes</Mono>
                 {d.invoices.length > 0 ? (
                   <div className="mt-2.5 flex flex-col gap-2.5">
-                    {d.invoices.map((inv, i) => (
+                    {d.invoices.map((inv) => (
                       <div
-                        key={`${inv.name}-${i}`}
+                        key={inv.id}
                         className={`rounded-[4px] p-3.5 ${
                           inv.paid
                             ? 'border border-[#cfdcc0] bg-[#f1f5ea]'
@@ -491,6 +502,15 @@ export default function AppPage() {
                             }`}
                           >
                             {inv.paid ? 'Reçu ✓' : 'Marquer reçu'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => a.deleteInvoice(inv.id)}
+                            aria-label={`Supprimer la facture de ${inv.name}`}
+                            title="Supprimer cette facture"
+                            className="min-h-[44px] shrink-0 cursor-pointer rounded-[4px] border border-edge-light bg-cream px-3 text-[13px] text-muted hover:text-brand-deep"
+                          >
+                            ✕
                           </button>
                         </div>
                       </div>
@@ -546,13 +566,14 @@ export default function AppPage() {
                   <>
                     <ul className="mt-2.5 overflow-hidden rounded-[4px] border border-edge-light bg-cream-card">
                       {d.prospects.map((p, i) => (
-                        <li key={p.id}>
+                        <li
+                          key={p.id}
+                          className={`flex items-center ${i ? 'border-t border-[#ede2ce]' : ''}`}
+                        >
                           <button
                             type="button"
                             onClick={() => a.advanceProspect(p.id, p.stage)}
-                            className={`flex min-h-[56px] w-full cursor-pointer items-center justify-between gap-3 p-3.5 text-left ${
-                              i ? 'border-t border-[#ede2ce]' : ''
-                            }`}
+                            className="flex min-h-[56px] flex-1 cursor-pointer items-center justify-between gap-3 p-3.5 text-left"
                           >
                             <div>
                               <div className="text-sm font-bold">{p.name}</div>
@@ -572,11 +593,19 @@ export default function AppPage() {
                               {p.stage}
                             </span>
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => a.deleteProspect(p.id)}
+                            aria-label={`Supprimer le prospect ${p.name}`}
+                            className="min-h-[56px] shrink-0 cursor-pointer px-3.5 text-[15px] text-muted hover:text-brand-deep"
+                          >
+                            ✕
+                          </button>
                         </li>
                       ))}
                     </ul>
                     <p className="mt-2 font-mono text-[11px] text-muted">
-                      Touchez un prospect pour faire avancer son statut.
+                      Touchez un prospect pour faire avancer son statut. La croix le supprime.
                     </p>
                   </>
                 ) : (
@@ -703,11 +732,13 @@ export default function AppPage() {
                     ? (d.displayName ?? 'Mon profil')
                     : s.sheet === 'goal'
                       ? 'Objectif du mois'
-                      : s.sheet === 'add'
-                        ? s.form.kind === 'prospect'
-                          ? 'Nouveau prospect'
-                          : 'Nouveau client'
-                        : `Relancer ${d.relanceInvoice?.name ?? ''}`}
+                      : s.sheet === 'corrections'
+                        ? 'Corriger un encaissement'
+                        : s.sheet === 'add'
+                          ? s.form.kind === 'prospect'
+                            ? 'Nouveau prospect'
+                            : 'Nouveau client'
+                          : `Relancer ${d.relanceInvoice?.name ?? ''}`}
                 </h2>
                 <IconButton onClick={() => a.closeSheet()} label="Fermer">
                   ✕
@@ -732,6 +763,14 @@ export default function AppPage() {
                     </button>
                     <button
                       type="button"
+                      onClick={() => a.openSheet('corrections')}
+                      className="flex min-h-[56px] w-full cursor-pointer items-center justify-between gap-3 border-t border-[#ede2ce] p-3.5 text-left"
+                    >
+                      <span className="text-sm font-bold">Corriger un encaissement</span>
+                      <span className="font-mono text-xs text-brand">→</span>
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => a.togglePremium()}
                       className="flex min-h-[56px] w-full cursor-pointer items-center justify-between gap-3 border-t border-[#ede2ce] p-3.5 text-left"
                     >
@@ -739,6 +778,24 @@ export default function AppPage() {
                       <span className="font-mono text-xs text-brand">{d.planLabel}</span>
                     </button>
                   </div>
+
+                  {/* The number quoted in every reminder. Blank = the reminder
+                      asks the client how they want to pay instead. */}
+                  <Mono className="mt-[18px] text-muted">Mon numéro de paiement</Mono>
+                  <input
+                    value={s.phoneDraft}
+                    onChange={(e) => a.setPhoneDraft(e.target.value)}
+                    onBlur={() => a.savePhone()}
+                    placeholder="77 000 00 00"
+                    inputMode="tel"
+                    autoComplete="tel"
+                    aria-label="Mon numéro Wave ou Orange Money"
+                    className="mt-2 min-h-[52px] w-full rounded-[4px] border border-edge-light bg-cream-card p-3.5 font-mono text-[15px] text-ink outline-none focus:border-brand"
+                  />
+                  <p className="mt-1.5 font-mono text-[11px] leading-relaxed text-muted">
+                    Ce numéro apparaît dans vos messages de relance. Laissez vide et le message
+                    demandera simplement au client comment il souhaite régler.
+                  </p>
                   <button
                     type="button"
                     onClick={() => void a.signOut()}
@@ -764,6 +821,49 @@ export default function AppPage() {
                       </button>
                     ))}
                   </div>
+                </>
+              )}
+
+              {s.sheet === 'corrections' && (
+                <>
+                  <p className="mt-1 text-[13px] leading-normal text-[#6b5941]">
+                    Un montant tapé de travers ? Supprimez-le : le total du mois se recalcule, et la
+                    facture qu&rsquo;il avait réglée redevient ouverte.
+                  </p>
+                  {d.recentIncomes.length > 0 ? (
+                    <ul className="mt-3.5 overflow-hidden rounded-[4px] border border-edge-light bg-cream-card">
+                      {d.recentIncomes.map((inc, i) => (
+                        <li
+                          key={inc.id}
+                          className={`flex items-center gap-3 p-3.5 ${
+                            i ? 'border-t border-[#ede2ce]' : ''
+                          }`}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-sm font-bold">{inc.label}</div>
+                            <div className="mt-0.5 font-mono text-[11px] text-muted">
+                              {inc.when}
+                            </div>
+                          </div>
+                          <span className="text-[15px] font-extrabold tabular-nums">
+                            {fcfa(inc.amount)}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => a.deleteIncome(inc.id)}
+                            aria-label={`Supprimer l'encaissement de ${fcfa(inc.amount)} FCFA`}
+                            className="min-h-[44px] shrink-0 cursor-pointer rounded-[4px] border border-edge-light px-3 text-[13px] font-bold text-brand-deep"
+                          >
+                            Annuler
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="mt-3.5 rounded-[4px] border border-dashed border-[#d8c9ae] bg-cream-card p-4 text-[13px] leading-[1.45] text-muted">
+                      Aucun encaissement enregistré pour le moment.
+                    </p>
+                  )}
                 </>
               )}
 
@@ -844,8 +944,18 @@ export default function AppPage() {
                     {fcfa(d.relanceInvoice.amount)} FCFA · {d.relanceInvoice.tag}
                   </div>
                   <p className="mt-3.5 rounded-[4px] border border-edge-light bg-cream-card p-3.5 text-sm leading-normal text-ink">
-                    {relanceMessage(d.relanceInvoice)}
+                    {relanceMessage(d.relanceInvoice, d.phone)}
                   </p>
+                  {!d.phone && (
+                    <button
+                      type="button"
+                      onClick={() => a.openSheet('profile')}
+                      className="mt-2 w-full cursor-pointer text-left font-mono text-[11px] leading-relaxed text-brand"
+                    >
+                      Ajoutez votre numéro Wave / Orange Money dans le profil pour qu&rsquo;il
+                      apparaisse ici →
+                    </button>
+                  )}
                   <Cta
                     onClick={() => a.markRelanced()}
                     className="mt-3.5 min-h-0 p-[15px] text-[15px]"

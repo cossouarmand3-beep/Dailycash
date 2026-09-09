@@ -126,8 +126,8 @@ export default function Home() {
               <PrimaryLink href="/signup" className="min-h-[52px] text-base">
                 Commencer gratuitement
               </PrimaryLink>
-              <GhostLink href="/app" className="min-h-[52px] text-base">
-                Voir l&rsquo;application
+              <GhostLink href="/onboarding" className="min-h-[52px] text-base">
+                Découvrir en 3 étapes
               </GhostLink>
             </div>
             <p className="mt-[18px] font-mono text-xs leading-relaxed text-tan">
@@ -268,7 +268,10 @@ export default function Home() {
       {/* ─── Footer ─────────────────────────────────────────────────── */}
       <footer className="mx-auto flex max-w-[1160px] flex-wrap items-baseline justify-between gap-4 px-6 pt-8 pb-12">
         <div className="font-mono text-[11px] text-muted">Daily Cash · Dakar · FCFA</div>
-        <div className="flex gap-[18px] text-sm">
+        <div className="flex flex-wrap gap-[18px] text-sm">
+          <Link href="/onboarding" className="text-link hover:text-link-hover">
+            Découvrir
+          </Link>
           <Link href="/app" className="text-link hover:text-link-hover">
             Application mobile
           </Link>

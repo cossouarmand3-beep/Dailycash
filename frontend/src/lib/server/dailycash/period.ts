@@ -18,8 +18,20 @@ export function startOfWeek(now: Date): Date {
   return d;
 }
 
+/** First instant of next week — the exclusive upper bound for "cette semaine". */
+export function startOfNextWeek(now: Date): Date {
+  const d = startOfWeek(now);
+  d.setUTCDate(d.getUTCDate() + 7);
+  return d;
+}
+
 export function startOfDay(now: Date): Date {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+}
+
+/** First instant of tomorrow — the exclusive upper bound for "aujourd'hui". */
+export function startOfNextDay(now: Date): Date {
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
 }
 
 export function startOfMonth(now: Date): Date {

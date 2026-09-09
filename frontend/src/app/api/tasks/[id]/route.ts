@@ -1,4 +1,5 @@
-// PATCH /api/tasks/[id] — tick a task off (or back on).
+// PATCH  /api/tasks/[id] — tick a task off (or back on).
+// DELETE /api/tasks/[id] — remove it entirely.
 export const runtime = 'nodejs';
 
 import 'server-only';
@@ -38,6 +39,38 @@ export async function PATCH(
       where: { id, userId: auth.user.sub },
       data: { done: parsed.data.done, doneAt: parsed.data.done ? new Date() : null },
     });
+
+    if (res.count === 0) {
+      return NextResponse.json(
+        { error: 'TASK_NOT_FOUND', message: 'Tâche introuvable' },
+        { status: 404, headers: { 'x-request-id': ctx.requestId } },
+      );
+    }
+
+    return NextResponse.json(
+      { ok: true },
+      { status: 200, headers: { 'x-request-id': ctx.requestId } },
+    );
+  });
+}
+
+// DELETE /api/tasks/[id] — remove a task typed by mistake. Ticking a task off
+// hides it from the count but keeps it on screen; deleting is the only way to
+// undo a typo, which is why it exists rather than being left to a rewrite.
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+): Promise<NextResponse> {
+  const ctx = makeRequestContext(req.headers);
+  return withRequestContext(ctx, async () => {
+    const csrfFail = verifyCsrf(req);
+    if (csrfFail) return csrfFail;
+
+    const auth = await requireAuth();
+    if (auth instanceof NextResponse) return auth;
+
+    const { id } = await params;
+    const res = await prisma.task.deleteMany({ where: { id, userId: auth.user.sub } });
 
     if (res.count === 0) {
       return NextResponse.json(

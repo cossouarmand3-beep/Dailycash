@@ -16,6 +16,10 @@ import { makeRequestContext, withRequestContext } from '@/lib/server/observabili
 const Body = z.object({
   name: z.string().trim().min(1).max(80).optional(),
   trade: z.string().trim().min(1).max(80).optional(),
+  // The freelancer's OWN Wave / Orange Money number, quoted in the reminder
+  // sent to clients. Empty string clears it — the reminder then omits the
+  // payment line rather than falling back to a placeholder.
+  phone: z.string().trim().max(32).nullable().optional(),
 });
 
 export async function PATCH(req: NextRequest): Promise<NextResponse> {
@@ -40,8 +44,11 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
       data: {
         ...(parsed.data.name ? { name: parsed.data.name } : {}),
         ...(parsed.data.trade ? { trade: parsed.data.trade } : {}),
+        // `undefined` = field absent, leave it alone. An explicit null or ""
+        // is a deliberate clear.
+        ...(parsed.data.phone === undefined ? {} : { phone: parsed.data.phone || null }),
       },
-      select: { name: true, trade: true, email: true },
+      select: { name: true, trade: true, email: true, phone: true },
     });
 
     return NextResponse.json({ user }, { status: 200, headers: { 'x-request-id': ctx.requestId } });

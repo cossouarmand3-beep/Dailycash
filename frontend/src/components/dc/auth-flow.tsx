@@ -385,6 +385,28 @@ export function AuthFlow({ initialMode }: { initialMode: 'signup' | 'login' }) {
       <Cta type="submit" disabled={!codeOk || busy} className="mt-[22px]">
         {busy ? 'Vérification…' : codeOk ? 'Valider le code' : 'Entrez les 8 caractères'}
       </Cta>
+
+      {/* Escape hatch. Signup answers identically whether or not the email is
+          already registered (deliberate — it stops an attacker enumerating
+          accounts), so an existing user lands here and NO code is ever sent.
+          Without this link they wait on a screen that can never advance. */}
+      {signup && (
+        <p className="mt-3.5 text-center font-mono text-[11px] leading-relaxed text-muted lg:text-left">
+          Le code n&rsquo;arrive pas ? Cette adresse a peut-être déjà un compte.{' '}
+          <button
+            type="button"
+            onClick={() => {
+              setMode('login');
+              setStep('form');
+              setCode('');
+              setError(null);
+            }}
+            className="cursor-pointer font-bold text-brand underline"
+          >
+            Se connecter
+          </button>
+        </p>
+      )}
     </form>
   );
 

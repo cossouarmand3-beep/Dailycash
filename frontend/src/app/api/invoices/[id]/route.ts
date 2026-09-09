@@ -1,4 +1,5 @@
-// PATCH /api/invoices/[id] — mark an invoice paid, or record that it was chased.
+// PATCH  /api/invoices/[id] — mark an invoice paid, or record that it was chased.
+// DELETE /api/invoices/[id] — remove an invoice added by mistake.
 //
 // action: "pay"     → settle it AND create the matching Income row
 // action: "relance" → stamp relancedAt (the reminder was sent)
@@ -53,14 +54,27 @@ export async function PATCH(
       if (!invoice) return { error: 'INVOICE_NOT_FOUND' as const };
 
       if (parsed.data.action === 'relance') {
+        // Chasing a settled invoice would send a client a reminder for money
+        // they already paid — refuse rather than stamp it.
+        if (invoice.status !== 'OPEN') return { error: 'INVOICE_NOT_OPEN' as const };
         await tx.invoice.update({ where: { id }, data: { relancedAt: new Date() } });
         return { ok: true as const, incomeId: null };
       }
 
-      // Idempotent: paying an already-paid invoice must not double-count.
-      if (invoice.status === 'PAID') return { ok: true as const, incomeId: null };
-
+      // Compare-and-swap on the status. Two concurrent "marquer reçu" taps —
+      // the normal outcome of a slow mobile connection — would otherwise BOTH
+      // read OPEN and BOTH create an income, double-counting the payment.
+      // Only the request that actually flips OPEN → PAID writes the income.
       const now = new Date();
+      const claimed = await tx.invoice.updateMany({
+        where: { id, userId, status: 'OPEN' },
+        data: { status: 'PAID', paidAt: now },
+      });
+      if (claimed.count === 0) {
+        // Already settled (by the other tap, or by an earlier request).
+        return { ok: true as const, incomeId: null };
+      }
+
       const income = await tx.income.create({
         data: {
           userId,
@@ -72,17 +86,17 @@ export async function PATCH(
         },
         select: { id: true },
       });
-      await tx.invoice.update({
-        where: { id },
-        data: { status: 'PAID', paidAt: now },
-      });
       return { ok: true as const, incomeId: income.id };
     });
 
     if ('error' in result) {
+      const notOpen = result.error === 'INVOICE_NOT_OPEN';
       return NextResponse.json(
-        { error: result.error, message: 'Facture introuvable' },
-        { status: 404, headers: { 'x-request-id': ctx.requestId } },
+        {
+          error: result.error,
+          message: notOpen ? 'Cette facture est déjà réglée.' : 'Facture introuvable',
+        },
+        { status: notOpen ? 409 : 404, headers: { 'x-request-id': ctx.requestId } },
       );
     }
 
@@ -90,5 +104,37 @@ export async function PATCH(
       status: 200,
       headers: { 'x-request-id': ctx.requestId },
     });
+  });
+}
+
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+): Promise<NextResponse> {
+  const ctx = makeRequestContext(req.headers);
+  return withRequestContext(ctx, async () => {
+    const csrfFail = verifyCsrf(req);
+    if (csrfFail) return csrfFail;
+
+    const auth = await requireAuth();
+    if (auth instanceof NextResponse) return auth;
+
+    const { id } = await params;
+    // Any income already recorded against this invoice SURVIVES: the money
+    // was really received. Income.invoiceId is `onDelete: SetNull`, so the
+    // payment simply stops pointing at a deleted invoice.
+    const res = await prisma.invoice.deleteMany({ where: { id, userId: auth.user.sub } });
+
+    if (res.count === 0) {
+      return NextResponse.json(
+        { error: 'INVOICE_NOT_FOUND', message: 'Facture introuvable' },
+        { status: 404, headers: { 'x-request-id': ctx.requestId } },
+      );
+    }
+
+    return NextResponse.json(
+      { ok: true },
+      { status: 200, headers: { 'x-request-id': ctx.requestId } },
+    );
   });
 }

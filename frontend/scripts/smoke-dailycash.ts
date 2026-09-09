@@ -58,13 +58,14 @@ class StepError extends Error {
 // Shapes of the responses this script asserts on. Kept minimal on purpose:
 // the script checks behaviour, not the full API surface.
 interface Dashboard {
-  user: { name: string | null; email: string | null; trade: string | null };
+  user: { name: string | null; email: string | null; trade: string | null; phone: string | null };
   totals: { month: number; week: number; day: number };
   goal: number | null;
   clients: { id: string; name: string }[];
-  invoices: { id: string; amount: number; status: string }[];
+  invoices: { id: string; amount: number; status: string; paidToday: boolean }[];
   tasks: { id: string; label: string; done: boolean }[];
   prospects: { id: string; name: string; stage: string }[];
+  recentIncomes: { id: string; amount: number; clientName: string | null }[];
 }
 
 async function call<T = unknown>(
@@ -134,7 +135,7 @@ export async function main(): Promise<number> {
     //     screen does it (signup itself issues no session to attach them to).
     await call('profile', '/api/profile', {
       method: 'PATCH',
-      body: { name: 'Fatou', trade: 'Community manager' },
+      body: { name: 'Fatou', trade: 'Community manager', phone: '77 123 45 67' },
     });
 
     // 2. A brand-new account must start at zero, not at seed data.
@@ -143,9 +144,20 @@ export async function main(): Promise<number> {
       throw new StepError('dashboard.empty', 200, empty);
     }
 
-    // 3. Client owing 60 000
+    // 3. One client, two open invoices. The OLD, SMALL one is created first
+    //    on purpose — see step 5.
     const { client } = await call<{ client: { id: string } }>(
-      'clients (avec dette)',
+      'clients (vieille dette 10 000)',
+      '/api/clients',
+      {
+        method: 'POST',
+        body: { name: 'Restaurant Teranga', owedAmount: 10000 },
+      },
+      201,
+    );
+    // Same name → the client is reused, and a second invoice is attached.
+    await call(
+      'clients (nouvelle facture 60 000)',
       '/api/clients',
       {
         method: 'POST',
@@ -154,9 +166,12 @@ export async function main(): Promise<number> {
       201,
     );
 
-    const withDebt = await call<Dashboard>('dashboard (dette)', '/api/dashboard');
-    if (withDebt.invoices.length !== 1 || withDebt.invoices[0].amount !== 60000) {
-      throw new StepError('dashboard.debt', 200, withDebt.invoices);
+    const withDebt = await call<Dashboard>('dashboard (dettes)', '/api/dashboard');
+    if (withDebt.clients.length !== 1 || withDebt.invoices.length !== 2) {
+      throw new StepError('dashboard.debt', 200, {
+        clients: withDebt.clients,
+        invoices: withDebt.invoices,
+      });
     }
 
     // 4. A 35 000 income with no client — month total moves, debt does not.
@@ -170,15 +185,40 @@ export async function main(): Promise<number> {
       201,
     );
 
-    // 5. Settle the invoice. This must ALSO create an income, so the month
-    //    total climbs by the invoice amount — the invariant worth proving.
-    const invoiceId = withDebt.invoices[0]?.id;
-    await call('invoices (marquer reçu)', `/api/invoices/${invoiceId}`, {
-      method: 'PATCH',
-      body: { action: 'pay', method: 'ORANGE_MONEY' },
-    });
+    // 5. Pay 60 000 for that client. It must settle the 60 000 invoice and
+    //    leave the older 10 000 OPEN. The regression this pins down: matching
+    //    "any invoice this payment covers, oldest first" closed the 10 000 and
+    //    left the real debt open and un-chased.
+    const paid60 = await call<{ income: { id: string }; settledInvoiceId: string | null }>(
+      'incomes (60 000 — règlement exact)',
+      '/api/incomes',
+      {
+        method: 'POST',
+        body: { amount: 60000, method: 'ORANGE_MONEY', clientId: client.id },
+      },
+      201,
+    );
+    const invoice60 = withDebt.invoices.find((i) => i.amount === 60000);
+    const invoice10 = withDebt.invoices.find((i) => i.amount === 10000);
+    if (!invoice60 || !invoice10) throw new StepError('fixtures', 200, withDebt.invoices);
+    if (paid60.settledInvoiceId !== invoice60.id) {
+      throw new StepError('settle.exactMatch', 200, {
+        expected: invoice60.id,
+        got: paid60.settledInvoiceId,
+      });
+    }
 
-    // 6. Task + prospect + goal
+    // 6. A payment dated in the future is refused: it would land in "today"
+    //    and "this week" while sitting outside the month window.
+    const future = new Date(Date.now() + 3 * 86_400_000).toISOString();
+    await call(
+      'incomes (date future refusée)',
+      '/api/incomes',
+      { method: 'POST', body: { amount: 1000, receivedAt: future } },
+      400,
+    );
+
+    // 7. Task + prospect + goal
     const { task } = await call<{ task: { id: string } }>(
       'tasks',
       '/api/tasks',
@@ -209,29 +249,76 @@ export async function main(): Promise<number> {
 
     await call('goal', '/api/goal', { method: 'PUT', body: { amount: 750000 } });
 
-    // 7. Final state
-    const final = await call<Dashboard>('dashboard (final)', '/api/dashboard');
+    // 8. State after the additions
+    const full = await call<Dashboard>('dashboard (complet)', '/api/dashboard');
     const expectedMonth = 35000 + 60000;
-    if (final.totals.month !== expectedMonth) {
-      throw new StepError('totals.month', 200, {
-        expected: expectedMonth,
-        got: final.totals.month,
+    if (full.totals.month !== expectedMonth) {
+      throw new StepError('totals.month', 200, { expected: expectedMonth, got: full.totals.month });
+    }
+    if (full.totals.day !== expectedMonth || full.totals.week !== expectedMonth) {
+      throw new StepError('totals.day/week', 200, full.totals);
+    }
+    if (full.goal !== 750000) throw new StepError('goal', 200, full.goal);
+    if (full.invoices.find((i) => i.id === invoice60.id)?.status !== 'PAID') {
+      throw new StepError('invoice60.settled', 200, full.invoices);
+    }
+    // The whole point of the exact-match rule: the old debt is untouched.
+    if (full.invoices.find((i) => i.id === invoice10.id)?.status !== 'OPEN') {
+      throw new StepError('invoice10.untouched', 200, full.invoices);
+    }
+    if (full.prospects[0]?.stage !== 'QUOTE_SENT') {
+      throw new StepError('prospect.stage', 200, full.prospects);
+    }
+    if (full.tasks[0]?.done !== true) throw new StepError('task.done', 200, full.tasks);
+    if (full.clients[0]?.id !== client.id) throw new StepError('client', 200, full.clients);
+    if (full.user?.name !== 'Fatou' || full.user?.trade !== 'Community manager') {
+      throw new StepError('user.profile', 200, full.user);
+    }
+    if (full.user?.phone !== '77 123 45 67') throw new StepError('user.phone', 200, full.user);
+    if (full.recentIncomes.length !== 2) {
+      throw new StepError('recentIncomes', 200, full.recentIncomes);
+    }
+
+    // 9. Undo a payment. The month total must fall back AND the invoice it
+    //    had settled must reopen — otherwise deleting the money would leave a
+    //    debt marked paid that nobody chases.
+    await call('incomes (annuler)', `/api/incomes/${paid60.income.id}`, { method: 'DELETE' });
+    const undone = await call<Dashboard>('dashboard (après annulation)', '/api/dashboard');
+    if (undone.totals.month !== 35000) {
+      throw new StepError('undo.total', 200, { expected: 35000, got: undone.totals.month });
+    }
+    if (undone.invoices.find((i) => i.id === invoice60.id)?.status !== 'OPEN') {
+      throw new StepError('undo.invoiceReopened', 200, undone.invoices);
+    }
+
+    // 10. Settling through the invoice route creates the income too, and a
+    //     repeated call must NOT double-count it (the double-tap case).
+    await call('invoices (marquer reçu)', `/api/invoices/${invoice10.id}`, {
+      method: 'PATCH',
+      body: { action: 'pay', method: 'WAVE' },
+    });
+    await call('invoices (re-marquer reçu — idempotent)', `/api/invoices/${invoice10.id}`, {
+      method: 'PATCH',
+      body: { action: 'pay', method: 'WAVE' },
+    });
+    const settled = await call<Dashboard>('dashboard (facture réglée)', '/api/dashboard');
+    if (settled.totals.month !== 45000) {
+      throw new StepError('pay.idempotent', 200, {
+        expected: 45000,
+        got: settled.totals.month,
+        note: 'un second « marquer reçu » a recompté le paiement',
       });
     }
-    if (final.totals.day !== expectedMonth || final.totals.week !== expectedMonth) {
-      throw new StepError('totals.day/week', 200, final.totals);
-    }
-    if (final.goal !== 750000) throw new StepError('goal', 200, final.goal);
-    if (final.invoices.some((i) => i.status !== 'PAID')) {
-      throw new StepError('invoice.settled', 200, final.invoices);
-    }
-    if (final.prospects[0]?.stage !== 'QUOTE_SENT') {
-      throw new StepError('prospect.stage', 200, final.prospects);
-    }
-    if (final.tasks[0]?.done !== true) throw new StepError('task.done', 200, final.tasks);
-    if (final.clients[0]?.id !== client.id) throw new StepError('client', 200, final.clients);
-    if (final.user?.name !== 'Fatou' || final.user?.trade !== 'Community manager') {
-      throw new StepError('user.profile', 200, final.user);
+
+    // 11. Deletions clean up.
+    await call('tasks (supprimer)', `/api/tasks/${task.id}`, { method: 'DELETE' });
+    await call('prospects (supprimer)', `/api/prospects/${prospect.id}`, { method: 'DELETE' });
+    const final = await call<Dashboard>('dashboard (final)', '/api/dashboard');
+    if (final.tasks.length !== 0 || final.prospects.length !== 0) {
+      throw new StepError('delete.cleanup', 200, {
+        tasks: final.tasks,
+        prospects: final.prospects,
+      });
     }
 
     console.log(

@@ -27,6 +27,10 @@ model User {
   // "Community manager"…). Free text so a fork can extend the list without
   // a migration.
   trade             String?
+  // Daily Cash: the freelancer's OWN Wave / Orange Money number, quoted in
+  // the ready-made reminder so the client knows where to pay. Nullable: until
+  // it is set, the reminder omits the payment line rather than inventing one.
+  phone             String?
   // App-wide role. USER is the default; ADMIN unlocks /admin back-office;
   // SUPERADMIN can promote/demote other admins. Bootstrap an initial
   // SUPERADMIN via `pnpm db:make-superadmin <email>` (see scripts).

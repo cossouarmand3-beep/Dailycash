@@ -5,7 +5,9 @@ import {
   periodKey,
   startOfDay,
   startOfMonth,
+  startOfNextDay,
   startOfNextMonth,
+  startOfNextWeek,
   startOfWeek,
 } from './period';
 
@@ -31,6 +33,44 @@ describe('startOfWeek (Monday-based)', () => {
   it('crosses a month boundary', () => {
     // 2026-10-01 is a Thursday; its week starts Monday 2026-09-28.
     expect(startOfWeek(at('2026-10-01T12:00:00Z')).toISOString()).toBe('2026-09-28T00:00:00.000Z');
+  });
+});
+
+describe('exclusive upper bounds', () => {
+  // The regression these guard: the dashboard's week and day aggregates once
+  // had only a lower bound, so an income dated in the future landed in
+  // "aujourd'hui" and "cette semaine" but not in "ce mois" — the day total
+  // could exceed the month total.
+  it('startOfNextDay is the next midnight', () => {
+    expect(startOfNextDay(at('2026-09-08T23:59:59Z')).toISOString()).toBe(
+      '2026-09-09T00:00:00.000Z',
+    );
+  });
+
+  it('startOfNextDay rolls over a month end', () => {
+    expect(startOfNextDay(at('2026-09-30T12:00:00Z')).toISOString()).toBe(
+      '2026-10-01T00:00:00.000Z',
+    );
+  });
+
+  it('startOfNextWeek is the Monday after this one', () => {
+    // 2026-09-08 is a Tuesday; its week is 09-07 → 09-14 exclusive.
+    expect(startOfNextWeek(at('2026-09-08T12:00:00Z')).toISOString()).toBe(
+      '2026-09-14T00:00:00.000Z',
+    );
+  });
+
+  it('startOfNextWeek from a Sunday still lands on the following Monday', () => {
+    expect(startOfNextWeek(at('2026-09-13T23:00:00Z')).toISOString()).toBe(
+      '2026-09-14T00:00:00.000Z',
+    );
+  });
+
+  it('every bound is strictly after its start', () => {
+    const now = at('2026-09-08T09:00:00Z');
+    expect(startOfNextDay(now).getTime()).toBeGreaterThan(startOfDay(now).getTime());
+    expect(startOfNextWeek(now).getTime()).toBeGreaterThan(startOfWeek(now).getTime());
+    expect(startOfNextMonth(now).getTime()).toBeGreaterThan(startOfMonth(now).getTime());
   });
 });
 

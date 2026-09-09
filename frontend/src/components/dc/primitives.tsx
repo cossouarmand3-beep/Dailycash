@@ -6,12 +6,9 @@
 
 import type { ReactNode } from 'react';
 
-/** 487500 → "487 500". Mirrors the prototypes' `fmt()`. */
-export function fcfa(n: number): string {
-  return Math.round(n)
-    .toString()
-    .replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
-}
+// Re-exported so the screens keep importing everything visual from one place,
+// while the pure formatter stays usable outside React (see lib/dailycash).
+export { fcfa } from '@/lib/dailycash/format';
 
 /** Uppercase DM Mono label that sits above nearly every block. */
 export function Mono({ children, className = '' }: { children: ReactNode; className?: string }) {

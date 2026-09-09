@@ -24,6 +24,7 @@ import { isBanned } from '@/lib/server/auth/banned-passwords';
 import { isPwned } from '@/lib/server/auth/hibp';
 import { dummyBcryptCompare } from '@/lib/server/auth/dummy-bcrypt';
 import { enqueueOutbox } from '@/lib/server/outbox';
+import { announceVerificationCodeInDev } from '@/lib/server/auth/dev-code-notice';
 
 const PASSWORD_MIN = Number(process.env.AUTH_PASSWORD_MIN_LENGTH ?? 10);
 const VERIFICATION_TTL_MS = Number(process.env.AUTH_VERIFICATION_TTL_MIN ?? 15) * 60 * 1000;
@@ -142,6 +143,8 @@ export async function POST(req: NextRequest): Promise<Response> {
     });
 
     log.info('signup new user');
+    // No-op in production, and no-op as soon as a mailer is configured.
+    announceVerificationCodeInDev(email, code);
     const res = NextResponse.json({ ok: true }, { status: 201 });
     res.headers.set('x-request-id', ctx.requestId);
     return res;

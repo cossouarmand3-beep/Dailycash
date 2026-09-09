@@ -13,6 +13,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ApiError, api } from '@/lib/api';
+import { relanceMessage as buildRelance } from '@/lib/dailycash/relance';
 import { fcfa } from './primitives';
 
 export const STAGES = ['Premier contact', 'À relancer', 'Devis envoyé', 'Gagné'] as const;
@@ -61,8 +62,16 @@ export interface Invoice {
   amount: number;
   tag: string;
   late: boolean;
+  /** Whole days past the due date — read from the API, never re-parsed. */
+  daysLate: number;
   paid: boolean;
   relanced: boolean;
+}
+export interface RecentIncome {
+  id: string;
+  amount: number;
+  label: string;
+  when: string;
 }
 export interface Prospect {
   id: string;
@@ -77,11 +86,20 @@ export interface Income {
 }
 
 export type Screen = 'today' | 'income' | 'clients';
-export type Sheet = 'profile' | 'goal' | 'add' | 'relance' | 'income' | 'success';
+export type Sheet =
+  | 'profile'
+  | 'goal'
+  | 'add'
+  | 'relance'
+  | 'income'
+  | 'success'
+  // Undo a payment entered wrong. Without it the ledger was append-only and
+  // a slipped keypad stayed in the month total forever.
+  | 'corrections';
 
 // ── Wire format ──────────────────────────────────────────────────────
 interface DashboardResponse {
-  user: { name: string | null; email: string | null; trade: string | null };
+  user: { name: string | null; email: string | null; trade: string | null; phone: string | null };
   totals: { month: number; week: number; day: number };
   goal: number | null;
   period: string;
@@ -93,24 +111,38 @@ interface DashboardResponse {
     clientId: string | null;
     clientName: string | null;
     dueDate: string | null;
+    paidAt: string | null;
+    paidToday: boolean;
     late: boolean;
     daysLate: number;
     relancedToday: boolean;
   }[];
   tasks: { id: string; label: string; tag: string; done: boolean }[];
   prospects: { id: string; name: string; estimatedAmount: number | null; stage: string }[];
+  recentIncomes: {
+    id: string;
+    amount: number;
+    method: string;
+    receivedAt: string;
+    clientName: string | null;
+  }[];
 }
+
+const shortDate = (iso: string) =>
+  new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
 
 /** The one-line status the invoice cards show under the client name. */
 function invoiceTag(inv: DashboardResponse['invoices'][number]): string {
-  if (inv.status === 'PAID') return "Payé — encaissé aujourd'hui";
+  if (inv.status === 'PAID') {
+    // Only claim "aujourd'hui" when it really was today: an invoice settled
+    // three months ago used to read "encaissé aujourd'hui" forever.
+    if (inv.paidToday) return "Payé — encaissé aujourd'hui";
+    return inv.paidAt ? `Payé le ${shortDate(inv.paidAt)}` : 'Payé';
+  }
   const base = inv.late
     ? `Retard ${inv.daysLate} jour${inv.daysLate > 1 ? 's' : ''}`
     : inv.dueDate
-      ? `Échéance ${new Date(inv.dueDate).toLocaleDateString('fr-FR', {
-          day: 'numeric',
-          month: 'short',
-        })}`
+      ? `Échéance ${shortDate(inv.dueDate)}`
       : 'Échéance à définir';
   return inv.relancedToday ? `Relancé aujourd'hui · ${base}` : base;
 }
@@ -124,6 +156,8 @@ interface UiState {
   relanceId: string | null;
   form: { kind: 'client' | 'prospect'; name: string; amount: string };
   draft: string;
+  /** Edited in the profile sheet; the number quoted in reminder messages. */
+  phoneDraft: string;
   success: Income | null;
   // Billing is not built yet, so the plan is a local toggle: it drives the
   // paywall UI only, and grants nothing server-side.
@@ -139,6 +173,7 @@ const UI_SEED: UiState = {
   relanceId: null,
   form: { kind: 'client', name: '', amount: '' },
   draft: '',
+  phoneDraft: '',
   success: null,
   premium: true,
 };
@@ -198,8 +233,15 @@ export function useDailyCash() {
       amount: inv.amount,
       tag: invoiceTag(inv),
       late: inv.late,
+      daysLate: inv.daysLate,
       paid: inv.status === 'PAID',
       relanced: inv.relancedToday,
+    }));
+    const recentIncomes: RecentIncome[] = (data?.recentIncomes ?? []).map((inc) => ({
+      id: inc.id,
+      amount: inc.amount,
+      label: inc.clientName ?? 'Sans client',
+      when: shortDate(inc.receivedAt),
     }));
     const tasks: Task[] = data?.tasks ?? [];
     const prospects: Prospect[] = (data?.prospects ?? []).map((p) => ({
@@ -233,8 +275,10 @@ export function useDailyCash() {
       initial: displayName ? displayName.charAt(0).toUpperCase() : '·',
       greeting: displayName ? `Bonjour ${displayName}` : 'Bonjour',
       profileLine: [data?.user.trade, 'Dakar'].filter(Boolean).join(' · '),
+      phone: data?.user.phone ?? null,
       clients,
       invoices,
+      recentIncomes,
       tasks,
       prospects,
       openInvoices,
@@ -247,11 +291,14 @@ export function useDailyCash() {
       due,
       goalPct,
       // True only once loaded AND the account genuinely has nothing yet.
+      // Prospects count: an account holding only leads is not empty, and the
+      // empty state used to hide them behind a "commencez ici" screen.
       isEmpty:
         !loading &&
         clients.length === 0 &&
         invoices.length === 0 &&
         tasks.length === 0 &&
+        prospects.length === 0 &&
         month === 0,
       monthLabel: fcfa(month),
       weekLabel: fcfa(data?.totals.week ?? 0),
@@ -262,8 +309,13 @@ export function useDailyCash() {
         due <= 0
           ? "Rien à recevoir pour l'instant. Ajoutez un client pour suivre ce qu'on vous doit."
           : `Réparti sur ${openCount} ${openCount > 1 ? 'clients. ' : 'client. '}` +
+            // daysLate comes straight off the wire. The previous version dug
+            // the number back out of the display string with a regex, so any
+            // wording change silently produced "attend depuis  jours".
             (lateInvoices[0]
-              ? `${lateInvoices[0].name} attend depuis ${lateInvoices[0].tag.replace(/\D+/g, '')} jours.`
+              ? `${lateInvoices[0].name} attend depuis ${lateInvoices[0].daysLate} ${
+                  lateInvoices[0].daysLate > 1 ? 'jours' : 'jour'
+                }.`
               : 'Tout est dans les délais.'),
       dueNote: lateInvoices[0]
         ? `${lateInvoices[0].name} est en retard.`
@@ -297,11 +349,25 @@ export function useDailyCash() {
     () => ({
       refresh,
       go: (screen: Screen) => patch({ screen, success: null, sheet: null }),
-      openSheet: (sheet: Sheet) => patch({ sheet }),
+      // The profile sheet edits the payment number, so it opens with the
+      // stored value rather than a blank field.
+      openSheet: (sheet: Sheet) =>
+        patch(sheet === 'profile' ? { sheet, phoneDraft: data?.user.phone ?? '' } : { sheet }),
       closeSheet: () => patch({ sheet: null, relanceId: null }),
       setMethod: (method: Method) => patch({ method }),
       setClient: (clientId: string | null) => patch({ clientId }),
       setDraft: (draft: string) => patch({ draft }),
+      setPhoneDraft: (phoneDraft: string) => patch({ phoneDraft: phoneDraft.slice(0, 32) }),
+
+      /** Saves (or clears) the number the reminder message quotes. */
+      savePhone: () =>
+        void mutate(async () => {
+          await api('/api/profile', {
+            method: 'PATCH',
+            body: { phone: ui.phoneDraft.trim() },
+          });
+          patch({ sheet: null });
+        }),
       setDigits: (digits: string) => patch({ digits: digits.replace(/[^0-9]/g, '').slice(0, 9) }),
       setForm: (p: Partial<UiState['form']>) => patch((prev) => ({ form: { ...prev.form, ...p } })),
       togglePremium: () => patch((prev) => ({ premium: !prev.premium, sheet: null })),
@@ -338,6 +404,20 @@ export function useDailyCash() {
       },
       toggleTask: (id: string, done: boolean) =>
         void mutate(() => api(`/api/tasks/${id}`, { method: 'PATCH', body: { done } })),
+
+      // ── Corrections ───────────────────────────────────────────────────
+      // Nothing here existed before: every screen could only add. A freelancer
+      // who typed 350 000 instead of 35 000 had a wrong month total for good.
+      deleteTask: (id: string) => void mutate(() => api(`/api/tasks/${id}`, { method: 'DELETE' })),
+      deleteProspect: (id: string) =>
+        void mutate(() => api(`/api/prospects/${id}`, { method: 'DELETE' })),
+      deleteClient: (id: string) =>
+        void mutate(() => api(`/api/clients/${id}`, { method: 'DELETE' })),
+      deleteInvoice: (id: string) =>
+        void mutate(() => api(`/api/invoices/${id}`, { method: 'DELETE' })),
+      /** Also reopens the invoice this payment had settled, server-side. */
+      deleteIncome: (id: string) =>
+        void mutate(() => api(`/api/incomes/${id}`, { method: 'DELETE' })),
 
       payInvoice: (id: string) =>
         void mutate(async () => {
@@ -412,14 +492,20 @@ export function useDailyCash() {
         });
       },
     }),
-    [patch, mutate, refresh, ui, view.settleTarget, view.selectedClient],
+    [patch, mutate, refresh, ui, data, view.settleTarget, view.selectedClient],
   );
 
   return { s: ui, d: view, a: actions, loading, authRequired, error };
 }
 
-/** The ready-to-send reminder text, exactly as the prototypes composed it. */
-export function relanceMessage(inv: Invoice | null): string {
+/**
+ * The ready-to-send reminder text.
+ *
+ * `phone` is the FREELANCER's own Wave / Orange Money number. It must come
+ * from the account (`d.phone`) — the prototype's placeholder used to be
+ * hard-coded here, which sent every client to a number owned by nobody.
+ */
+export function relanceMessage(inv: Invoice | null, phone: string | null): string {
   if (!inv) return '';
-  return `Bonjour ${inv.name}, petit rappel pour la facture de ${fcfa(inv.amount)} FCFA. Vous pouvez régler par Wave ou Orange Money au 77 000 00 00. Merci !`;
+  return buildRelance({ clientName: inv.name, amount: inv.amount, phone });
 }
